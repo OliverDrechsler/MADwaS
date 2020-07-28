@@ -1,0 +1,14 @@
+[Unit]
+Description=Monitor ARP queries and DNS queries to wake up a Server
+After=syslog.target network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/dns_wol.py
+Restart=on-failure
+RestartSec=10
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

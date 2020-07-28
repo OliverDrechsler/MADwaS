@@ -1,0 +1,28 @@
+version: 1
+formatters:
+  simple:
+    format: '%(asctime)s: %(message)s'
+  verbose:
+    format: '%(asctime)s: pid:%(process)d: thread:%(threadName)s: %(funcName)s-%(lineno)d: %(levelname)s: %(message)s'
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: verbose
+    stream: ext://sys.stdout
+  rotating_file_handler:
+    level: INFO
+    formatter: verbose
+    class: logging.handlers.RotatingFileHandler
+    filename: dns_wol.log
+    mode: a
+    maxBytes: 1048576
+    backupCount: 10
+loggers:
+  my-Logger:
+    level: INFO
+    handlers: [console]
+    propagate: no
+root:
+  level: INFO
+  handlers: [console]

@@ -1,0 +1,14 @@
+.ipny*/
+.vscode/
+.scapy/
+/venv/
+.idea/
+.pytest_cache/
+__pycache__/
+.coverage
+htmlcov/
+source/
+build/
+.mypy_cache/
+.DS_Store
+config.yaml
