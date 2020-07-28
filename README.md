@@ -6,9 +6,9 @@
 [![Known Vulnerabilities](https://snyk.io/test/github/od2017/MADwaS/badge.svg)](https://snyk.io/test/github/od2017/MADwaS)
 
 
-# MADwaS - (M)onitoring (A)RP queries and (D)NS queries to (w)akeup (a) (S)erver
+# MADwaS - (M)onitor (A)RP queries and (D)NS queries to (w)akeup (a) (S)erver
 
-- [MADwaS - (M)onitoring (A)RP queries and (D)NS queries to (w)akeup (a) (S)erver](#madwas---monitoring-arp-queries-and-dns-queries-to-wakeup-a-server)
+- [MADwaS - (M)onitor (A)RP queries and (D)NS queries to (w)akeup (a) (S)erver](#madwas---monitor-arp-queries-and-dns-queries-to-wakeup-a-server)
   - [Intro](#intro)
   - [UseCase](#usecase)
   - [minimum requirements](#minimum-requirements)
