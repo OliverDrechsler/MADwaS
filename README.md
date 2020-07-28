@@ -35,7 +35,7 @@ I ran at home a [VDR](http://tvdr.de/) home theater pc.
 This computer also acts as my file server (samba).  
 To save power consumption, this PC is often powered of.  
 It powers it self on for recording TV shows and powers off it self.  
-For that i use some plugins like [EPGSearch](http://www.vdr-wiki.de/wiki/index.php/Epgsearch-plugin) [ACPIWakeup](http://www.vdr-wiki.de/wiki/index.php/ACPI_Wakeup)
+For that i use some plugins like [EPGSearch](http://www.vdr-wiki.de/wiki/index.php/Epgsearch-plugin) and [ACPIWakeup](http://www.vdr-wiki.de/wiki/index.php/ACPI_Wakeup).  
 So, mostly when i want to access my files the VDR is often powered off and my  
 File Server is not accessable.  
 To power on my VDR via LAN, i use the [wake on lan](http://www.vdr-wiki.de/wiki/index.php/WAKE_ON_LAN) feature.  
@@ -76,7 +76,7 @@ Host:
 
 clone repo and configure settings
 ```bash
-git clone [<repo url>](https://github.com/od2017/MADwaS.git)
+git clone https://github.com/od2017/MADwaS.git
 cd MADwaS
 cp dns_wol.py /usr/local/bin
 cp config_template.yaml /usr/bin/local/config.yaml
