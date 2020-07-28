@@ -1,5 +1,7 @@
-[![GitHub Action Status](https://github.com/od2017/reply_dns_and_arp_with_wol/workflows/reply_dns_and_arp_with_wol/badge.svg)](https://github.com/od2017/reply_dns_and_arp_with_wol/workflows/reply_dns_and_arp_with_wol/badge.svg)
+[![GitHub Action Status](https://github.com/od2017/MADwaS/workflows/MADwaS/badge.svg)](https://github.com/od2017/MADwaS/workflows/MADwaS/badge.svg)
 [![wemake-python-styleguide](https://img.shields.io/badge/style-wemake-000000.svg)](https://github.com/wemake-services/wemake-python-styleguide)
+[![pyup update](https://pyup.io/repos/github/od2017/MADwaS/shield.svg?t=1595976933672)](https://pyup.io/repos/github/od2017/MADwaS/shield.svg?t=1595976933672)
+[![python3]https://pyup.io/repos/github/od2017/MADwaS/python-3-shield.svg?t=1595976933673](https://pyup.io/repos/github/od2017/MADwaS/python-3-shield.svg?t=1595976933673)
 
 # MADwaS - (M)onitoring (A)RP queries and (D)NS queries to (w)akeup (a) (S)erver
 
