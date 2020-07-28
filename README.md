@@ -1,7 +1,10 @@
 [![GitHub Action Status](https://github.com/od2017/MADwaS/workflows/MADwaS/badge.svg)](https://github.com/od2017/MADwaS/workflows/MADwaS/badge.svg)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=od2017_MADwaS&metric=alert_status)](https://sonarcloud.io/dashboard?id=od2017_MADwaS)
 [![wemake-python-styleguide](https://img.shields.io/badge/style-wemake-000000.svg)](https://github.com/wemake-services/wemake-python-styleguide)
-[![pyup update](https://pyup.io/repos/github/od2017/MADwaS/shield.svg?t=1595976933672)](https://pyup.io/repos/github/od2017/MADwaS/shield.svg?t=1595976933672)
-[![python3]https://pyup.io/repos/github/od2017/MADwaS/python-3-shield.svg?t=1595976933673](https://pyup.io/repos/github/od2017/MADwaS/python-3-shield.svg?t=1595976933673)
+[![Updates](https://pyup.io/repos/github/od2017/MADwaS/shield.svg)](https://pyup.io/repos/github/od2017/MADwaS/)
+[![Python 3](https://pyup.io/repos/github/od2017/MADwaS/python-3-shield.svg)](https://pyup.io/repos/github/od2017/MADwaS/)
+[![Known Vulnerabilities](https://snyk.io/test/github/od2017/MADwaS/badge.svg)](https://snyk.io/test/github/od2017/MADwaS)
+
 
 # MADwaS - (M)onitoring (A)RP queries and (D)NS queries to (w)akeup (a) (S)erver
 
