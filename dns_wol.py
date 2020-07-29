@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import sys
+
+from yaml.loader import Loader
 from scapy.all import (
     ARP,
     IP,
@@ -406,8 +408,8 @@ def add_object_to_thread_queue(_object_class):
 
 if __name__ == "__main__":
     """Main method"""
-    with open(os.path.dirname(os.path.abspath(__file__)) + '/log_config.yaml', 'r') as f:
-        log_config = yaml.safe_load(f.read())
+    with open(file=os.path.dirname(os.path.abspath(__file__)) + '/log_config.yaml', mode='r') as file:
+        log_config = yaml.load(file, Loader=yaml.SafeLoader)
         logging.config.dictConfig(log_config)
     logger = logging.getLogger(__name__)
 

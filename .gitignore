@@ -12,3 +12,4 @@ build/
 .mypy_cache/
 .DS_Store
 config.yaml
+dns_wol.log
