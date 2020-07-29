@@ -100,15 +100,15 @@ To start service run `systemctl start dns_wol.service`
 ## config.yaml parameters should be self explained
 
 Customize in the config.yaml with following vars:  
-own_ip: "<host ip where script runs on>"  
-own_mac: "<mac address where script runs on>"   
+own_ip: "host ip where script runs on"  
+own_mac: "mac address where script runs on"  
   
 listening_name:  
-  - "list of <dnsname query for which should be listened>"  
+  - "list of dnsname query for which should be listened"  
   - "seconde name entry"  
-listening_ip: "<ip address for which should be listened>"  
-listening_mac: "<mac address for which the arp request should be listened>"  
+listening_ip: "ip address for which should be listened"  
+listening_mac: "mac address for which the arp request should be listened"  
   
-from_mail: "<local sendmail daemon from mail address>"  
-to_mail: "<local sendmail daemon to mail address>"  
-enable_mail: <enable sendmail on wakeup event: True/False>
+from_mail: "local sendmail daemon from mail address"  
+to_mail: "local sendmail daemon to mail address"  
+enable_mail: "enable sendmail on wakeup event: True/False"
