@@ -29,7 +29,7 @@ logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 conf.sniff_promisc = True
 
 
-class Wakeup_Thread:
+class WakeupThread:
     """
     Stores attributes for monitored host to wakeup
 
@@ -151,7 +151,7 @@ def sendmail(_text, _from, _to):
     s.send_message(_message)
     result = s.quit()
     logger.debug(f"sendmail result code {result}")
-    if result[0] is int(221):
+    if result[0] == int(221):
         logger.debug(f"return True, {result}")
         return True, result
     else:
@@ -187,7 +187,7 @@ def wakeup_monitored_host(wakeup_class):
     """
     Wake monitored host / ip, if not alive via icmp
 
-    :param wakeup_class: from scapy sniffed thread new created class Wakeup_Thread for wakeup host
+    :param wakeup_class: from scapy sniffed thread new created class WakeupThread for wakeup host
     :type _object_class_form_queue: class 
     :return: if wakeup performed = True / if host alive = False
     :rtype: boolean
@@ -236,9 +236,9 @@ def wakeup_monitored_host(wakeup_class):
             logger.info(f"no wake - icmp check: host is alive!")
             logger.debug("Method return False")
             return False
-    except Exception as e:
+    except Exception:
         logger.exception("Exception occurred", exc_info=True)
-        pass
+
     logger.debug("return False")
     return False
 
@@ -265,7 +265,7 @@ def arp_check(pkt):
             logger.debug(f"{searched_arp_ip} == {config.listening_ip}")
             if requestor_arp_ip != config.own_ip:
                 logger.debug(f"{requestor_arp_ip} != {config.own_ip}")
-                wakeup_objects = Wakeup_Thread(
+                wakeup_objects = WakeupThread(
                     searched_ip=config.listening_ip,
                     searched_mac=config.listening_mac,
                     request_type="ARP",
@@ -298,7 +298,7 @@ def dns_query_check(pkt):
             ip_src = pkt[IP].src
             dns_name = str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip('.')
             logger.info(f"{str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')} is in {str(config.listening_name).lower()}")
-            wakeup_objects = Wakeup_Thread(
+            wakeup_objects = WakeupThread(
                 searched_ip=config.listening_ip,
                 searched_mac=config.listening_mac,
                 request_type="DNS Query",
@@ -307,9 +307,9 @@ def dns_query_check(pkt):
                 )
             add_object_to_thread_queue(wakeup_objects)
             return True
-    except Exception as e:
+    except Exception:
         logger.exception("Exception occurred", exc_info=True)
-        pass
+
     logger.debug("return False")
     return False
 
@@ -355,8 +355,6 @@ def get_hostname(ip):
     """
     try:
         data = socket.gethostbyaddr(ip)
-        # host = repr(data[0])
-        # host = repr(data)
         host = data
         logger.debug(f'resolved hostname: {host[0]}')
         return host[0]
