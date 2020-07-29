@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 import sys
-
-from yaml.loader import Loader
 from scapy.all import (
     ARP,
     IP,
@@ -12,7 +10,6 @@ from scapy.all import (
     sr1,
     conf,
 )
-from scapy.layers.all import log
 from wakeonlan import send_magic_packet
 import time
 import os
@@ -34,6 +31,7 @@ conf.sniff_promisc = True
 exception_message = "Exception occurred"
 return_message = "return False"
 
+
 class WakeupThread:
     """
     Stores attributes for monitored host to wakeup
@@ -51,8 +49,10 @@ class WakeupThread:
     :type searched_dns: default == None or provided str
     """
 
-    def __init__(self, searched_ip, searched_mac, request_type, src_ip, 
-                 searched_dns=None):
+    def __init__(
+        self, searched_ip, searched_mac, request_type, src_ip, searched_dns=None
+    ):
+        """Initial class definition."""
         self.searched_ip = searched_ip
         self.searched_mac = searched_mac
         self.request_type = request_type
@@ -91,6 +91,7 @@ class Configuration:
         self.listening_mac = self.config["listening_mac"]
         self.from_mail = self.config["from_mail"]
         self.to_mail = self.config["to_mail"]
+        self.enable_mail = self.config["enable_mail"]
         self.wait_time = self.config["wait_time"]
 
     def read_config(self, config_file):
@@ -112,7 +113,9 @@ class Configuration:
         Defines a new class path atrribute.
         """
         if os.path.isfile(os.path.dirname(os.path.abspath(__file__)) + "/config.yaml"):
-            self.config_file = os.path.dirname(os.path.abspath(__file__)) + "/config.yaml"
+            self.config_file = (
+                os.path.dirname(os.path.abspath(__file__)) + "/config.yaml"
+            )
             logger.debug(self.config_file)
         else:
             print("else")
@@ -120,18 +123,6 @@ class Configuration:
                 os.path.dirname(os.path.abspath(__file__)) + "/config_template.yaml"
             )
             logger.debug(self.config_file)
-
-
-# def syslog_logging(message):
-#     """
-#     Logs message to standard syslog.
-
-#     :param message: message which should be logged
-#     :type message: string
-#     :return: none
-#     :rtype: None
-#     """
-#     syslog.syslog(syslog.LOG_INFO, message)
 
 
 def sendmail(_text, _from, _to):
@@ -147,21 +138,27 @@ def sendmail(_text, _from, _to):
     :return: True/False, Tuple with smtp status code, message str
     :rtype: boolean, tuple(int(status_code),str(mesasge of code))
     """
-    _message = Parser().parsestr(f"From: <{_from}>\n"
-                                 f"To: <{_to}>\n"
-                                 f"Subject: {_text}\n"
-                                 "\n"
-                                 f"{_text}\n")
-    s = smtplib.SMTP('localhost')
-    s.send_message(_message)
-    result = s.quit()
-    logger.debug(f"sendmail result code {result}")
-    if result[0] == int(221):
-        logger.debug(f"return True, {result}")
-        return True, result
+    if config.enable_mail:
+        _message = Parser().parsestr(
+            f"From: <{_from}>\n"
+            f"To: <{_to}>\n"
+            f"Subject: {_text}\n"
+            "\n"
+            f"{_text}\n"
+        )
+        s = smtplib.SMTP("localhost")
+        s.send_message(_message)
+        result = s.quit()
+        logger.debug(f"sendmail result code {result}")
+        if result[0] == int(221):
+            logger.debug(f"return True, {result}")
+            return True, result
+        else:
+            logger.debug(f"return False, {result}")
+            return False, result
     else:
-        logger.debug(f"return False, {result}")
-        return False, result
+        return False, "sendmail disabled"
+
 
 def icmp_check(ipaddress):
     """
@@ -173,7 +170,7 @@ def icmp_check(ipaddress):
     :rtype: boolean
     """
     logger.info("ICMP checking if {0} is alive".format(ipaddress))
-    ans1= sr1(IP(dst=ipaddress) / ICMP(), timeout=1, verbose=0)
+    ans1 = sr1(IP(dst=ipaddress) / ICMP(), timeout=1, verbose=0)
     logger.debug(f"first responce sr1={ans1}")
     time.sleep(0.5)
     resp = sr1(IP(dst=ipaddress) / ICMP(), timeout=1, verbose=0)
@@ -203,7 +200,9 @@ def wakeup_monitored_host(wakeup_class):
         else:
             _asked_for = wakeup_class.searched_dns
 
-        logger.info(f"{wakeup_class.request_type} request detected - IP {wakeup_class.src_ip} asks for {_asked_for}")
+        logger.info(
+            f"{wakeup_class.request_type} request detected - IP {wakeup_class.src_ip} asks for {_asked_for}"
+        )
 
         icmp_result = icmp_check(wakeup_class.searched_ip)
         logger.debug(f"icmp_result: {icmp_result}")
@@ -216,20 +215,28 @@ def wakeup_monitored_host(wakeup_class):
             else:
                 get_hostname_resolution = ""
             logger.debug(f"hostname resolution = {get_hostname_resolution}")
-            logger.info("WoL WakeUp - {0} Request detected - IP {1} {2} asks for {3}".format(
-                wakeup_class.request_type, wakeup_class.src_ip,
-                get_hostname_resolution,
-                _asked_for))
+            logger.info(
+                "WoL WakeUp - {0} Request detected - IP {1} {2} asks for {3}".format(
+                    wakeup_class.request_type,
+                    wakeup_class.src_ip,
+                    get_hostname_resolution,
+                    _asked_for,
+                )
+            )
 
             logger.debug(f"send wol paket to {wakeup_class.searched_ip}")
             send_magic_packet(wakeup_class.searched_mac)
             logger.debug("send now email about wakeup")
-            sendmail("WoL WakeUp - {0} Request detected - IP {1} / {2} asks for {3}".format(
-                wakeup_class.request_type, wakeup_class.src_ip,
-                get_hostname_resolution,
-                _asked_for),
+            sendmail(
+                "WoL WakeUp - {0} Request detected - IP {1} / {2} asks for {3}".format(
+                    wakeup_class.request_type,
+                    wakeup_class.src_ip,
+                    get_hostname_resolution,
+                    _asked_for,
+                ),
                 config.from_mail,
-                config.to_mail)
+                config.to_mail,
+            )
 
             logger.debug(f"now wait to spin up host for {config.wait_time} seconds")
             time.sleep(config.wait_time)
@@ -248,7 +255,6 @@ def wakeup_monitored_host(wakeup_class):
     return False
 
 
-
 def arp_check(pkt):
     """Check ethernet packet for arp request
 
@@ -265,7 +271,9 @@ def arp_check(pkt):
         searched_arp_ip = pkt[ARP].pdst
         requestor_arp_ip = pkt[ARP].psrc
         arp_asking_mac = pkt[ARP].hwsrc
-        logger.debug(f"hwsrc {arp_asking_mac}; psrc {requestor_arp_ip}; pdst {searched_arp_ip}")
+        logger.debug(
+            f"hwsrc {arp_asking_mac}; psrc {requestor_arp_ip}; pdst {searched_arp_ip}"
+        )
         if searched_arp_ip == config.listening_ip:
             logger.debug(f"{searched_arp_ip} == {config.listening_ip}")
             if requestor_arp_ip != config.own_ip:
@@ -275,13 +283,13 @@ def arp_check(pkt):
                     searched_mac=config.listening_mac,
                     request_type="ARP",
                     src_ip=requestor_arp_ip,
-                    searched_dns=None
-                    )
+                    searched_dns=None,
+                )
                 add_object_to_thread_queue(wakeup_objects)
                 return True
 
     logger.debug(return_message)
-    # maybe to fix below for unwanted syslog output 
+    # maybe to fix below for unwanted syslog output
     return False
 
 
@@ -297,19 +305,28 @@ def dns_query_check(pkt):
     :rtype: boolean
     """
     try:
-        logger.debug(f"check dns query {str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}")
+        logger.debug(
+            f"check dns query {str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}"
+        )
 
-        if str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip('.') in config.listening_name:
+        if (
+            str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
+            in config.listening_name
+        ):
             ip_src = pkt[IP].src
-            dns_name = str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip('.')
-            logger.info(f"{str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')} is in {str(config.listening_name).lower()}")
+            dns_name = (
+                str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
+            )
+            logger.info(
+                f"{str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')} is in {str(config.listening_name).lower()}"
+            )
             wakeup_objects = WakeupThread(
                 searched_ip=config.listening_ip,
                 searched_mac=config.listening_mac,
                 request_type="DNS Query",
                 src_ip=ip_src,
-                searched_dns=dns_name
-                )
+                searched_dns=dns_name,
+            )
             add_object_to_thread_queue(wakeup_objects)
             return True
     except Exception:
@@ -336,11 +353,11 @@ def sniff_arp_and_dns(pkt):
     # show full paket to stdout
     # logger.debug(pkt.show())
     if ARP in pkt:
-        logger.debug('ARP paket detected')
+        logger.debug("ARP paket detected")
         result = arp_check(pkt)
 
     if pkt.haslayer(DNS) and pkt.getlayer(DNS).qr == 0:
-        logger.debug('DNS paket detected')
+        logger.debug("DNS paket detected")
         result = dns_query_check(pkt)
     logger.debug(f"return result {result}")
     return result
@@ -361,7 +378,7 @@ def get_hostname(ip):
     try:
         data = socket.gethostbyaddr(ip)
         host = data
-        logger.debug(f'resolved hostname: {host[0]}')
+        logger.debug(f"resolved hostname: {host[0]}")
         return host[0]
     except Exception:
         logger.exception(exception_message, exc_info=True)
@@ -408,7 +425,9 @@ def add_object_to_thread_queue(_object_class):
 
 if __name__ == "__main__":
     """Main method"""
-    with open(file=os.path.dirname(os.path.abspath(__file__)) + '/log_config.yaml', mode='r') as file:
+    with open(
+        file=os.path.dirname(os.path.abspath(__file__)) + "/log_config.yaml", mode="r"
+    ) as file:
         log_config = yaml.load(file, Loader=yaml.SafeLoader)
         logging.config.dictConfig(log_config)
     logger = logging.getLogger(__name__)
@@ -427,7 +446,6 @@ if __name__ == "__main__":
     try:
         logger.info("starting scapy sniffing pakets")
         sniff(prn=sniff_arp_and_dns, filter="arp[6:2] == 1 or udp dst port 53", store=0)
-        # sniff(prn=add_paket_to_thread_queue, lfilter=lambda a: a[ARP].opcode == 1, filter="udp dst port 53", store=0)
     except KeyboardInterrupt:
         logger.exception(exception_message, exc_info=True)
         logger.info("User Requested Shutdown...")

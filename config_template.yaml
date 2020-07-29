@@ -11,4 +11,6 @@ listening_mac: "77:88:99:aa:bb:cc"
 
 from_mail: "from_name@mydoamin.local"
 to_mail: "to_name@mydoamin.local"
+enable_mail: <True/False>
+
 
