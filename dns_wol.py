@@ -86,6 +86,7 @@ class Configuration:
         self.listening_mac = self.config["listening_mac"]
         self.from_mail = self.config["from_mail"]
         self.to_mail = self.config["to_mail"]
+        self.wait_time = self.config["wait_time"]
 
     def read_config(self, config_file):
         """
