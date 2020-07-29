@@ -31,7 +31,7 @@ If a wakeup paket is send, it sends via local available mail service a notificat
 
 ## UseCase
 
-I ran at home a [VDR](http://tvdr.de/) home theater pc.  
+I run at home a [VDR](http://tvdr.de/) home theater pc.  
 This computer also acts as my file server (samba).  
 To save power consumption, this PC is often powered of.  
 It powers it self on for recording TV shows and powers off it self.  
@@ -111,3 +111,4 @@ listening_mac: "<mac address for which the arp request should be listened>"
   
 from_mail: "<local sendmail daemon from mail address>"  
 to_mail: "<local sendmail daemon to mail address>"  
+enable_mail: <enable sendmail on wakeup event: True/False>
