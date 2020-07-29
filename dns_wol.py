@@ -205,9 +205,13 @@ def wakeup_monitored_host(wakeup_class):
 
         if icmp_result is False:
 
-            get_hostname_resolution = str(get_hostname(wakeup_class.src_ip))
+            _get_hostname_resolution = get_hostname(wakeup_class.src_ip)
+            if _get_hostname_resolution is not False:
+                get_hostname_resolution = f"/ {_get_hostname_resolution}"
+            else:
+                get_hostname_resolution = ""
             logger.debug(f"hostname resolution = {get_hostname_resolution}")
-            logger.info("WoL WakeUp - {0} Request detected - IP {1} / {2} asks for {3}".format(
+            logger.info("WoL WakeUp - {0} Request detected - IP {1} {2} asks for {3}".format(
                 wakeup_class.request_type, wakeup_class.src_ip,
                 get_hostname_resolution,
                 _asked_for))
