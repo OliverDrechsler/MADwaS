@@ -290,7 +290,7 @@ def dns_query_check(pkt):
     try:
         logger.debug(f"check dns query {str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}")
 
-        if str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip('.') in str(config.listening_name).lower():
+        if str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip('.') in config.listening_name:
             ip_src = pkt[IP].src
             dns_name = str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip('.')
             logger.info(f"{str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')} is in {str(config.listening_name).lower()}")
