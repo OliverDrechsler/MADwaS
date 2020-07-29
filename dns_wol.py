@@ -28,6 +28,9 @@ import logging.config
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 conf.sniff_promisc = True
 
+# own static constants
+exception_message = "Exception occurred"
+return_message = "return False"
 
 class WakeupThread:
     """
@@ -237,9 +240,9 @@ def wakeup_monitored_host(wakeup_class):
             logger.debug("Method return False")
             return False
     except Exception:
-        logger.exception("Exception occurred", exc_info=True)
+        logger.exception(exception_message, exc_info=True)
 
-    logger.debug("return False")
+    logger.debug(return_message)
     return False
 
 
@@ -275,7 +278,7 @@ def arp_check(pkt):
                 add_object_to_thread_queue(wakeup_objects)
                 return True
 
-    logger.debug("return False")
+    logger.debug(return_message)
     # maybe to fix below for unwanted syslog output 
     return False
 
@@ -308,9 +311,9 @@ def dns_query_check(pkt):
             add_object_to_thread_queue(wakeup_objects)
             return True
     except Exception:
-        logger.exception("Exception occurred", exc_info=True)
+        logger.exception(exception_message, exc_info=True)
 
-    logger.debug("return False")
+    logger.debug(return_message)
     return False
 
 
@@ -359,7 +362,7 @@ def get_hostname(ip):
         logger.debug(f'resolved hostname: {host[0]}')
         return host[0]
     except Exception:
-        logger.exception("Exception occurred", exc_info=True)
+        logger.exception(exception_message, exc_info=True)
         logger.debug("execption ip to hostname not resolved")
         return False
 
@@ -424,7 +427,7 @@ if __name__ == "__main__":
         sniff(prn=sniff_arp_and_dns, filter="arp[6:2] == 1 or udp dst port 53", store=0)
         # sniff(prn=add_paket_to_thread_queue, lfilter=lambda a: a[ARP].opcode == 1, filter="udp dst port 53", store=0)
     except KeyboardInterrupt:
-        logger.exception("Exception occurred", exc_info=True)
+        logger.exception(exception_message, exc_info=True)
         logger.info("User Requested Shutdown...")
         logger.info("Exiting...")
         sys.exit(1)
