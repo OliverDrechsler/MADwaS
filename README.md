@@ -87,10 +87,10 @@ vi /usr/local/bin/config.yaml  # modify config.yaml to your needs
 install python dependencies
 ```bash
 pip install -r requirements
-python3 dns_wol.py  # run first time test and watch console output
+python3 dns_wol.py  # run first time - test and watch console output
 ``` 
 
-## install script as a systemd service
+## run script as a systemd service
 
 The file `dns_wol.service` is a example file for systemd and must be adjusted to  
 your personal needs. Copy the file to `/etc/systemd/system`.  
@@ -105,11 +105,11 @@ own_ip: "<host ip where script runs on>"
 own_mac: "<mac address where script runs on>"  
   
 listening_name:  
-  - "<list of dnsname query for which should be listened>"  
-  - "<seconde name entry>"  
+  - "<list of dnsname query to be listened to>"  
+  - "<second name entry>"  
   
-listening_ip: "<ip address for which should be listened>"  
-listening_mac: "<mac address for which the arp request should be listened>"  
+listening_ip: "<ip address to be listened to>"  
+listening_mac: "<mac address of which the arp request to be listened to>"  
   
 from_mail: "<local sendmail daemon from mail address>"  
 to_mail: "<local sendmail daemon to mail address>"  
