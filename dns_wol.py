@@ -228,7 +228,7 @@ def wakeup_monitored_host(wakeup_class):
             send_magic_packet(wakeup_class.searched_mac)
             logger.debug("send now email about wakeup")
             sendmail(
-                "WoL WakeUp - {0} Request detected - IP {1} / {2} asks for {3}".format(
+                "WoL WakeUp - {0} Request detected - IP {1} {2} asks for {3}".format(
                     wakeup_class.request_type,
                     wakeup_class.src_ip,
                     get_hostname_resolution,
@@ -376,15 +376,12 @@ def get_hostname(ip):
     :rtype: string
     """
     try:
-        data = socket.gethostbyaddr(ip)
-        host = data
+        host = socket.gethostbyaddr(ip)
         logger.debug(f"resolved hostname: {host[0]}")
         return host[0]
-    except Exception:
-        logger.exception(exception_message, exc_info=True)
-        logger.debug("execption ip to hostname not resolved")
+    except (socket.herror):
+        logger.debug("execption known herror: ip to hostname not resolvable")
         return False
-
 
 def load_config():
     """Load config file.
