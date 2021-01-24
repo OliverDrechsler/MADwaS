@@ -1,10 +1,10 @@
-[![GitHub Action Status](https://github.com/od2017/MADwaS/workflows/MADwaS/badge.svg)](https://github.com/od2017/MADwaS/workflows/MADwaS/badge.svg)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=od2017_MADwaS&metric=alert_status)](https://sonarcloud.io/dashboard?id=od2017_MADwaS)
+[![GitHub Action Status](https://github.com/OliverDrechsler/MADwaS/workflows/MADwaS/badge.svg)](https://github.com/OliverDrechsler/MADwaS/workflows/MADwaS/badge.svg)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=OliverDrechsler_MADwaS&metric=alert_status)](https://sonarcloud.io/dashboard?id=OliverDrechsler_MADwaS)
 [![CodeFactor](https://www.codefactor.io/repository/github/oliverdrechsler/madwas/badge)](https://www.codefactor.io/repository/github/oliverdrechsler/madwas)
 [![wemake-python-styleguide](https://img.shields.io/badge/style-wemake-000000.svg)](https://github.com/wemake-services/wemake-python-styleguide)
-[![Updates](https://pyup.io/repos/github/od2017/MADwaS/shield.svg)](https://pyup.io/repos/github/od2017/MADwaS/)
-[![Python 3](https://pyup.io/repos/github/od2017/MADwaS/python-3-shield.svg)](https://pyup.io/repos/github/od2017/MADwaS/)
-[![Known Vulnerabilities](https://snyk.io/test/github/od2017/MADwaS/badge.svg)](https://snyk.io/test/github/od2017/MADwaS)
+[![Updates](https://pyup.io/repos/github/OliverDrechsler/MADwaS/shield.svg)](https://pyup.io/repos/github/OliverDrechsler/MADwaS/)
+[![Python 3](https://pyup.io/repos/github/OliverDrechsler/MADwaS/python-3-shield.svg)](https://pyup.io/repos/github/OliverDrechsler/MADwaS/)
+[![Known Vulnerabilities](https://snyk.io/test/github/OliverDrechsler/MADwaS/badge.svg)](https://snyk.io/test/github/OliverDrechsler/MADwaS)
 
 
 # MADwaS - Monitor ARP queries and DNS queries to wakeup a Server
