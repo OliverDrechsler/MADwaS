@@ -14,7 +14,7 @@
   - [UseCase](#usecase)
   - [minimum requirements](#minimum-requirements)
   - [first time setup](#first-time-setup)
-  - [install script as a systemd service](#install-script-as-a-systemd-service)
+  - [run script as a systemd service](#run-script-as-a-systemd-service)
   - [config.yaml parameters should be self explained](#configyaml-parameters-should-be-self-explained)
 
 
@@ -118,3 +118,11 @@ from_mail: "<local sendmail daemon from mail address>"
 to_mail: "<local sendmail daemon to mail address>"  
 enable_mail: "<enable sendmail on wakeup event: True/False>"
 ```
+
+<details>
+  <summary>📚 Imprint and GDPDR / Impressum und DSGVO</summary>
+
+   <a href="https://github.com/OliverDrechsler/Impressum#readme" onclick="popup=window.open('https://github.com/OliverDrechsler/Impressum#readme','Imprintpopup','width=580,height=635'); return false;">click here to see Imprint / Impressum</a>
+
+   <a href="https://github.com/OliverDrechsler/DSGVO#readme" onclick="popup=window.open('https://github.com/OliverDrechsler/DSGVO#readme','DSGVOpopup','width=580,height=635'); return false;">click here to see GDPDR / DSGVO</a>
+   
