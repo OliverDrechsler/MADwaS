@@ -66,8 +66,8 @@ class Configuration:
     Attributes:
         own_ip: IP Address of host system where this code runs on
         :type own_ip: list of str
-        own_mac: MAC Address of host system where this code runs on
-        :type own_mac: list of str
+        # own_mac: MAC Address of host system where this code runs on
+        # :type own_mac: list of str
         listing_ip: list of ip address which will be monitored / watched for action
         :type listing_ip: list with str
         listing_mac: list of mac address which will be monitored / watched for action
@@ -85,7 +85,7 @@ class Configuration:
         self.define_config_file()
         self.read_config(self.config_file)
         self.own_ip = self.config["own_ip"]
-        self.own_mac = self.config["own_mac"]
+        # self.own_mac = self.config["own_mac"]
         self.listening_ip = self.config["listening_ip"]
         self.listening_name = self.config["listening_name"]
         self.listening_mac = self.config["listening_mac"]
