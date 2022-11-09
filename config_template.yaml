@@ -6,8 +6,10 @@ wait_time: 45
 listening_name: 
   - "server.fritz.box"
   - "server.mydomain.local"
-listening_ip: "10.2.2.2"
-listening_mac: "77:88:99:aa:bb:cc"
+listening_ip: 
+  - "10.2.2.2"
+listening_mac: 
+  - "77:88:99:aa:bb:cc"
 
 from_mail: "from_name@mydoamin.local"
 to_mail: "to_name@mydoamin.local"

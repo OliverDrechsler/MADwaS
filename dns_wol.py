@@ -65,9 +65,9 @@ class Configuration:
 
     Attributes:
         own_ip: IP Address of host system where this code runs on
-        :type own_ip: str
+        :type own_ip: list of str
         own_mac: MAC Address of host system where this code runs on
-        :type own_mac: str
+        :type own_mac: list of str
         listing_ip: list of ip address which will be monitored / watched for action
         :type listing_ip: list with str
         listing_mac: list of mac address which will be monitored / watched for action
@@ -276,7 +276,7 @@ def arp_check(pkt):
         )
         if searched_arp_ip == config.listening_ip:
             logger.debug(f"{searched_arp_ip} == {config.listening_ip}")
-            if requestor_arp_ip != config.own_ip:
+            if requestor_arp_ip not in config.own_ip:
                 logger.debug(f"{requestor_arp_ip} != {config.own_ip}")
                 wakeup_objects = WakeupThread(
                     searched_ip=config.listening_ip,
