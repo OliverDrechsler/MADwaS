@@ -298,9 +298,9 @@ def dns_query_check(pkt):
         )
         key,value = 'dns_name',(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
+        logger.debug("monitored_dict {}".format(monitored_dict[0]['dns_name']))
         if not bool(monitored_dict):
-            logger.info("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], str(
-                pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
+            logger.info("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
             ip_src = pkt[IP].src
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
