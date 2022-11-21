@@ -263,7 +263,7 @@ def arp_check(pkt):
         monitored_dict = [ myDict for myDict in monitoring if myDict.get('ip') == searched_arp_ip ]
         logger.debug(f"monitored {monitored_dict['ip']} == searched {searched_arp_ip}")
         if not bool(monitored_dict):
-            if requestor_arp_ip not in config.blocked_ip and requestor_arp_ip == monitored_dict['ip']:
+            if requestor_arp_ip not in config.blocked_ip or requestor_arp_ip != monitored_dict['ip']:
                 logger.debug(f"{requestor_arp_ip} != {config.blocked_ip}")
                 wakeup_objects = WakeupThread(
                     searched_ip=searched_arp_ip,
@@ -304,14 +304,15 @@ def dns_query_check(pkt):
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
             )
-            wakeup_objects = WakeupThread(
-                searched_ip=monitored_dict["ip"],
-                searched_mac=monitored_dict["mac"],
-                request_type="DNS Query",
-                src_ip=ip_src,
-                searched_dns=dns_name,
-            )
-            add_object_to_thread_queue(wakeup_objects)
+            if ip_src != monitored_dict['ip'] or ip_src not in config.blocked_ip: 
+                wakeup_objects = WakeupThread(
+                    searched_ip=monitored_dict["ip"],
+                    searched_mac=monitored_dict["mac"],
+                    request_type="DNS Query",
+                    src_ip=ip_src,
+                    searched_dns=dns_name,
+                )
+                add_object_to_thread_queue(wakeup_objects)
             return True
     except Exception:
         logger.exception(exception_message, exc_info=True)
