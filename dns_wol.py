@@ -260,6 +260,7 @@ def arp_check(pkt):
         logger.debug(
             f"hwsrc {arp_asking_mac}; psrc {requestor_arp_ip}; pdst {searched_arp_ip}"
         )
+        monitored_dict = {}
         monitored_dict = [ myDict for myDict in monitoring if myDict.get('ip') == searched_arp_ip ]
         logger.debug(f"monitored {monitored_dict['ip']} == searched {searched_arp_ip}")
         if not bool(monitored_dict):
@@ -295,6 +296,7 @@ def dns_query_check(pkt):
         logger.debug(
             f"check dns query {str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}"
         )
+        monitored_dict = {}
         monitored_dict = [ myDict for myDict in monitoring if myDict.get('dns_name') == str(
             pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".") ]
         if not bool(monitored_dict):
