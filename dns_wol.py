@@ -196,7 +196,7 @@ def wakeup_monitored_host(wakeup_class):
         else:
             _asked_for = wakeup_class.searched_dns
         logger.info(
-            f"{wakeup_class.request_type} request detected - DNS {wakeup_class.src_ip} asks for {_asked_for}")
+            f"{wakeup_class.request_type} request detected - {wakeup_class.src_ip} asks for {_asked_for}")
 
         icmp_result = icmp_check(wakeup_class.searched_ip)
         logger.debug(f"icmp_result: {icmp_result}")
@@ -249,7 +249,7 @@ def arp_check(pkt):
         searched_arp_ip = pkt[ARP].pdst
         requestor_arp_ip = pkt[ARP].psrc
         arp_asking_mac = pkt[ARP].hwsrc
-        logger.debug(
+        logger.info(
             f"hwsrc {arp_asking_mac}; psrc {requestor_arp_ip}; pdst {searched_arp_ip}"
         )
         key, value = "ip", searched_arp_ip
