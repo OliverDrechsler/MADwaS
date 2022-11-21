@@ -262,10 +262,11 @@ def arp_check(pkt):
         )
         key, value = "ip", searched_arp_ip
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
-        logger.debug(f"monitored {monitored_dict['ip']} == searched {searched_arp_ip}")
+        logger.debug("monitored {} == searched {}".format(monitored_dict['ip'],
+            searched_arp_ip))
         if not bool(monitored_dict):
             if requestor_arp_ip not in config.blocked_ip or requestor_arp_ip != monitored_dict['ip']:
-                logger.debug(f"{requestor_arp_ip} != {config.blocked_ip}")
+                logger.debug("{} != {}".format(requestor_arp_ip, config.blocked_ip))
                 wakeup_objects = WakeupThread(
                     searched_ip=searched_arp_ip,
                     searched_mac=monitored_dict["mac"],
@@ -299,8 +300,8 @@ def dns_query_check(pkt):
         key,value = 'dns_name',(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
         if not bool(monitored_dict):
-            logger.info(f"monitored {monitored_dict['dns_name']} == searched " +
-                f"{str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}")
+            logger.info("monitored {} == searched {}".format(monitored_dict['dns_name'], 
+                str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
             ip_src = pkt[IP].src
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
@@ -371,8 +372,8 @@ def check_thread_queue():
             _object_class = workQueue.get_nowait()
             wakeup_monitored_host(_object_class)
             queueLock.release()
-        else:
-            logger.debug("empty queue")
+        # else:
+        #     logger.debug("empty queue")
 
         time.sleep(0.01)
 
