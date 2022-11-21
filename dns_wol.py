@@ -24,12 +24,11 @@ import logging.config
 
 
 # static library variables
-logging.getLogger("scapy.runtime").setLevel(logging.INFO)
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 conf.sniff_promisc = True
 
 # own static constants
 exception_message = "Exception occurred"
-return_message = "return False"
 
 
 class WakeupThread:
@@ -210,7 +209,6 @@ def wakeup_monitored_host(wakeup_class):
                     _asked_for
                 )
             )
-
             logger.debug(f"send wol paket to MAC address {wakeup_class.searched_mac} of IP {wakeup_class.searched_ip}")
             send_magic_packet(wakeup_class.searched_mac)
             logger.debug("send now email about wakeup")
@@ -223,22 +221,16 @@ def wakeup_monitored_host(wakeup_class):
                 config.from_mail,
                 config.to_mail,
             )
-
             logger.debug(f"now wait {config.wait_time} seconds to spin up host")
             time.sleep(config.wait_time)
-
             logger.debug("Method return True")
-            return True
-
         else:
             logger.info(f"no wake up  - icmp check: host is alive!")
             logger.debug("Method return False")
-            return False
+
     except Exception:
         logger.exception(exception_message, exc_info=True)
 
-    logger.debug(return_message)
-    return False
 
 
 def arp_check(pkt):
@@ -274,11 +266,6 @@ def arp_check(pkt):
                     searched_dns=None,
                 )
                 add_object_to_thread_queue(wakeup_objects)
-                # return True
-
-    logger.debug(return_message)
-    # maybe to fix below for unwanted syslog output
-    # return False
 
 
 def dns_query_check(pkt):
@@ -315,12 +302,8 @@ def dns_query_check(pkt):
                     searched_dns=dns_name,
                 )
                 add_object_to_thread_queue(wakeup_objects)
-            # return True
     except Exception:
         logger.exception(exception_message, exc_info=True)
-
-    logger.debug(return_message)
-    # return False
 
 
 def sniff_arp_and_dns(pkt):
@@ -347,7 +330,7 @@ def sniff_arp_and_dns(pkt):
         logger.debug("DNS paket detected")
         result = dns_query_check(pkt)
     logger.debug(f"return result {result}")
-    # return result
+
 
 def load_config():
     """Load config file.
@@ -372,9 +355,6 @@ def check_thread_queue():
             _object_class = workQueue.get_nowait()
             wakeup_monitored_host(_object_class)
             queueLock.release()
-        # else:
-        #     logger.debug("empty queue")
-
         time.sleep(0.01)
 
 

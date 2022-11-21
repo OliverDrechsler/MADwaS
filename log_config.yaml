@@ -7,11 +7,11 @@ formatters:
 handlers:
   console:
     class: logging.StreamHandler
-    level: DEBUG
+    level: INFO
     formatter: verbose
     stream: ext://sys.stdout
   rotating_file_handler:
-    level: DEBUG
+    level: INFO
     formatter: verbose
     class: logging.handlers.RotatingFileHandler
     filename: dns_wol.log
@@ -20,9 +20,9 @@ handlers:
     backupCount: 10
 loggers:
   my-Logger:
-    level: DEBUG
+    level: INFO
     handlers: [console]
     propagate: no
 root:
-  level: DEBUG
+  level: INFO
   handlers: [console]
