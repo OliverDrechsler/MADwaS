@@ -256,7 +256,7 @@ def arp_check(pkt):
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
         if (len(monitored_dict) > 0):
             logger.debug("monitored {} == searched {}".format(monitored_dict[0]['ip'],searched_arp_ip))
-            if requestor_arp_ip not in config.blocked_ip or requestor_arp_ip not in monitored_dict[0]['ip']:
+            if requestor_arp_ip not in config.blocked_ip and requestor_arp_ip not in monitored_dict[0]['ip']:
                 logger.debug("check for blocked {} != {}".format(requestor_arp_ip, config.blocked_ip))
                 wakeup_objects = WakeupThread(
                     searched_ip=searched_arp_ip,
@@ -292,7 +292,7 @@ def dns_query_check(pkt):
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
             )
-            if ip_src not in monitored_dict[0]['ip'] or ip_src not in config.blocked_ip: 
+            if ip_src not in monitored_dict[0]['ip'] and ip_src not in config.blocked_ip: 
                 logger.debug("checked for block {} != {}".format(ip_src, config.blocked_ip))
                 wakeup_objects = WakeupThread(
                     searched_ip=monitored_dict[0]["ip"],
