@@ -260,7 +260,8 @@ def arp_check(pkt):
         logger.debug(
             f"hwsrc {arp_asking_mac}; psrc {requestor_arp_ip}; pdst {searched_arp_ip}"
         )
-        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get('ip') == searched_arp_ip ]
+        key, value = "ip", searched_arp_ip
+        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
         logger.debug(f"monitored {monitored_dict['ip']} == searched {searched_arp_ip}")
         if not bool(monitored_dict):
             if requestor_arp_ip not in config.blocked_ip or requestor_arp_ip != monitored_dict['ip']:
@@ -295,8 +296,8 @@ def dns_query_check(pkt):
         logger.debug(
             f"check dns query {str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}"
         )
-        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get('dns_name') == str(
-            pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".") ]
+        key,value = 'dns_name',(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
+        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
         if not bool(monitored_dict):
             logger.info(f"monitored {monitored_dict['dns_name']} == searched " +
                 f"{str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}")
