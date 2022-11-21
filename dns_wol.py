@@ -262,14 +262,14 @@ def arp_check(pkt):
         )
         key, value = "ip", searched_arp_ip
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
-        logger.debug("monitored {} == searched {}".format(monitored_dict['ip'],
+        logger.debug("monitored {} == searched {}".format(monitored_dict[0]['ip'],
             searched_arp_ip))
         if not bool(monitored_dict):
-            if requestor_arp_ip not in config.blocked_ip or requestor_arp_ip != monitored_dict['ip']:
+            if requestor_arp_ip not in config.blocked_ip or requestor_arp_ip != monitored_dict[0]['ip']:
                 logger.debug("{} != {}".format(requestor_arp_ip, config.blocked_ip))
                 wakeup_objects = WakeupThread(
                     searched_ip=searched_arp_ip,
-                    searched_mac=monitored_dict["mac"],
+                    searched_mac=monitored_dict[0]["mac"],
                     request_type="ARP",
                     src_ip=requestor_arp_ip,
                     searched_dns=None,
@@ -300,16 +300,16 @@ def dns_query_check(pkt):
         key,value = 'dns_name',(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
         if not bool(monitored_dict):
-            logger.info("monitored {} == searched {}".format(monitored_dict['dns_name'], 
+            logger.info("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], 
                 str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
             ip_src = pkt[IP].src
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
             )
-            if ip_src != monitored_dict['ip'] or ip_src not in config.blocked_ip: 
+            if ip_src != monitored_dict[0]['ip'] or ip_src not in config.blocked_ip: 
                 wakeup_objects = WakeupThread(
-                    searched_ip=monitored_dict["ip"],
-                    searched_mac=monitored_dict["mac"],
+                    searched_ip=monitored_dict[0]["ip"],
+                    searched_mac=monitored_dict[0]["mac"],
                     request_type="DNS Query",
                     src_ip=ip_src,
                     searched_dns=dns_name,
