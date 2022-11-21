@@ -262,8 +262,7 @@ def arp_check(pkt):
         )
         key, value = "ip", searched_arp_ip
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
-        logger.debug("monitored {} == searched {}".format(monitored_dict[0]['ip'],
-            searched_arp_ip))
+        logger.debug("monitored {} == searched {}".format(monitored_dict[0]['ip'],searched_arp_ip))
         if not bool(monitored_dict):
             if requestor_arp_ip not in config.blocked_ip or requestor_arp_ip != monitored_dict[0]['ip']:
                 logger.debug("{} != {}".format(requestor_arp_ip, config.blocked_ip))
@@ -300,8 +299,8 @@ def dns_query_check(pkt):
         key,value = 'dns_name',(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
         if not bool(monitored_dict):
-            logger.info("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], 
-                str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
+            logger.info("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], str(
+                pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
             ip_src = pkt[IP].src
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
