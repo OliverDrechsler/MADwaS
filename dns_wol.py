@@ -29,7 +29,6 @@ conf.sniff_promisc = True
 
 # own static constants
 exception_message = "Exception occurred"
-return_message = "return False"
 
 
 class WakeupThread:
@@ -64,10 +63,10 @@ class Configuration:
     """Reads gerneral yaml Config file into class.
 
     Attributes:
-        own_ip: IP Address of host system where this code runs on
-        :type own_ip: str
-        own_mac: MAC Address of host system where this code runs on
-        :type own_mac: str
+        blocked_ip: IP Address of host system where this code runs on
+        :type blocked_ip: list of str
+        # blocked_mac: MAC Address of host system where this code runs on
+        # :type blocked_mac: list of str
         listing_ip: list of ip address which will be monitored / watched for action
         :type listing_ip: list with str
         listing_mac: list of mac address which will be monitored / watched for action
@@ -84,11 +83,8 @@ class Configuration:
         """Initial class definition."""
         self.define_config_file()
         self.read_config(self.config_file)
-        self.own_ip = self.config["own_ip"]
-        self.own_mac = self.config["own_mac"]
-        self.listening_ip = self.config["listening_ip"]
-        self.listening_name = self.config["listening_name"]
-        self.listening_mac = self.config["listening_mac"]
+        self.blocked_ip = self.config["blocked_ip"]
+        self.monitoring = self.config["monitoring"]
         self.from_mail = self.config["from_mail"]
         self.to_mail = self.config["to_mail"]
         self.enable_mail = self.config["enable_mail"]
@@ -199,60 +195,42 @@ def wakeup_monitored_host(wakeup_class):
             _asked_for = wakeup_class.searched_ip
         else:
             _asked_for = wakeup_class.searched_dns
-
         logger.info(
-            f"{wakeup_class.request_type} request detected - IP {wakeup_class.src_ip} asks for {_asked_for}"
-        )
+            f"{wakeup_class.request_type} request detected - {wakeup_class.src_ip} asks for {_asked_for}")
 
         icmp_result = icmp_check(wakeup_class.searched_ip)
         logger.debug(f"icmp_result: {icmp_result}")
 
         if icmp_result is False:
-
-            _get_hostname_resolution = get_hostname(wakeup_class.src_ip)
-            if _get_hostname_resolution is not False:
-                get_hostname_resolution = f"/ {_get_hostname_resolution}"
-            else:
-                get_hostname_resolution = ""
-            logger.debug(f"hostname resolution = {get_hostname_resolution}")
             logger.info(
-                "WoL WakeUp - {0} Request detected - IP {1} {2} asks for {3}".format(
+                "WoL WakeUp - {0} Request detected - IP {1} asks for {2}".format(
                     wakeup_class.request_type,
                     wakeup_class.src_ip,
-                    get_hostname_resolution,
-                    _asked_for,
+                    _asked_for
                 )
             )
-
-            logger.debug(f"send wol paket to {wakeup_class.searched_ip}")
+            logger.debug(f"send wol paket to MAC address {wakeup_class.searched_mac} of IP {wakeup_class.searched_ip}")
             send_magic_packet(wakeup_class.searched_mac)
             logger.debug("send now email about wakeup")
             sendmail(
-                "WoL WakeUp - {0} Request detected - IP {1} {2} asks for {3}".format(
+                "WoL WakeUp - {0} Request detected - IP {1} asks for {2}".format(
                     wakeup_class.request_type,
                     wakeup_class.src_ip,
-                    get_hostname_resolution,
                     _asked_for,
                 ),
                 config.from_mail,
                 config.to_mail,
             )
-
-            logger.debug(f"now wait to spin up host for {config.wait_time} seconds")
+            logger.debug(f"now wait {config.wait_time} seconds to spin up host")
             time.sleep(config.wait_time)
-
             logger.debug("Method return True")
-            return True
-
         else:
-            logger.info(f"no wake - icmp check: host is alive!")
+            logger.info(f"no wake up  - icmp check: host is alive!")
             logger.debug("Method return False")
-            return False
+
     except Exception:
         logger.exception(exception_message, exc_info=True)
 
-    logger.debug(return_message)
-    return False
 
 
 def arp_check(pkt):
@@ -264,7 +242,7 @@ def arp_check(pkt):
     :param pkt: sniffed full ethernet packet
     :type pkt: class
     :return: give a boolean feedback if a wol was send or not
-    :rtype: boolean
+    # :rtype: boolean
     """
     logger.debug(f"check arp paket {pkt[ARP].op} == 1")
     if pkt[ARP].op == 1:
@@ -272,25 +250,22 @@ def arp_check(pkt):
         requestor_arp_ip = pkt[ARP].psrc
         arp_asking_mac = pkt[ARP].hwsrc
         logger.debug(
-            f"hwsrc {arp_asking_mac}; psrc {requestor_arp_ip}; pdst {searched_arp_ip}"
+            f"hwsrc {arp_asking_mac} psrc {requestor_arp_ip} pdst {searched_arp_ip}"
         )
-        if searched_arp_ip == config.listening_ip:
-            logger.debug(f"{searched_arp_ip} == {config.listening_ip}")
-            if requestor_arp_ip != config.own_ip:
-                logger.debug(f"{requestor_arp_ip} != {config.own_ip}")
+        key, value = "ip", searched_arp_ip
+        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
+        if (len(monitored_dict) > 0):
+            logger.debug("monitored {} == searched {}".format(monitored_dict[0]['ip'],searched_arp_ip))
+            if requestor_arp_ip not in config.blocked_ip and requestor_arp_ip not in monitored_dict[0]['ip']:
+                logger.debug("check for blocked {} != {}".format(requestor_arp_ip, config.blocked_ip))
                 wakeup_objects = WakeupThread(
-                    searched_ip=config.listening_ip,
-                    searched_mac=config.listening_mac,
+                    searched_ip=searched_arp_ip,
+                    searched_mac=monitored_dict[0]["mac"],
                     request_type="ARP",
                     src_ip=requestor_arp_ip,
                     searched_dns=None,
                 )
                 add_object_to_thread_queue(wakeup_objects)
-                return True
-
-    logger.debug(return_message)
-    # maybe to fix below for unwanted syslog output
-    return False
 
 
 def dns_query_check(pkt):
@@ -308,32 +283,27 @@ def dns_query_check(pkt):
         logger.debug(
             f"check dns query {str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}"
         )
-
-        if (
-            str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
-            in config.listening_name
-        ):
+        key,value = 'dns_name',(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
+        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
+        logger.debug(f"{len(monitored_dict)}")
+        if (len(monitored_dict) > 0):
+            logger.debug("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
             ip_src = pkt[IP].src
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
             )
-            logger.info(
-                f"{str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')} is in {str(config.listening_name).lower()}"
-            )
-            wakeup_objects = WakeupThread(
-                searched_ip=config.listening_ip,
-                searched_mac=config.listening_mac,
-                request_type="DNS Query",
-                src_ip=ip_src,
-                searched_dns=dns_name,
-            )
-            add_object_to_thread_queue(wakeup_objects)
-            return True
+            if ip_src not in monitored_dict[0]['ip'] and ip_src not in config.blocked_ip: 
+                logger.debug("checked for block {} != {}".format(ip_src, config.blocked_ip))
+                wakeup_objects = WakeupThread(
+                    searched_ip=monitored_dict[0]["ip"],
+                    searched_mac=monitored_dict[0]["mac"],
+                    request_type="DNS Query",
+                    src_ip=ip_src,
+                    searched_dns=dns_name,
+                )
+                add_object_to_thread_queue(wakeup_objects)
     except Exception:
         logger.exception(exception_message, exc_info=True)
-
-    logger.debug(return_message)
-    return False
 
 
 def sniff_arp_and_dns(pkt):
@@ -360,28 +330,7 @@ def sniff_arp_and_dns(pkt):
         logger.debug("DNS paket detected")
         result = dns_query_check(pkt)
     logger.debug(f"return result {result}")
-    return result
 
-
-def get_hostname(ip):
-    """Get hostname of IP.
-
-    This method returns the 'True Host' name for a
-    given IP address.
-    It uses a socks gethostname query.
-
-    :param ip: ipv4 address
-    :type ip: str
-    :return: hostname
-    :rtype: string
-    """
-    try:
-        host = socket.gethostbyaddr(ip)
-        logger.debug(f"resolved hostname: {host[0]}")
-        return host[0]
-    except (socket.herror):
-        logger.debug("execption known herror: ip to hostname not resolvable")
-        return False
 
 def load_config():
     """Load config file.
@@ -406,9 +355,6 @@ def check_thread_queue():
             _object_class = workQueue.get_nowait()
             wakeup_monitored_host(_object_class)
             queueLock.release()
-        else:
-            logger.debug("empty queue")
-
         time.sleep(0.01)
 
 

@@ -20,13 +20,13 @@
 
 ## Intro
 
-MADwaS - (M)onitor (A)RP queries and (D)NS queries to (w)akeup (a) (S)erver
+MADwaS - (M)onitor (A)RP queries and (D)NS queries to (w)akeup one or more (S)ervers
 
 This script sniffs on a network interface for:  
 
-- DNS Name query request  
-and / or
-- ARP (who has) IPAddress request  
+- for one or multiple specific DNS Name query request (specified in config file) 
+and
+- for one or multiple specific ARP (who has) IPAddress requests (also specified in config yaml file)
 
 It checks if a destination ip (server) is alive via icmp.  
 If not it sends a wake on lan magic packet and waits for a defined time period for the next check.  
@@ -102,19 +102,5 @@ To start service run `systemctl start dns_wol.service`
 
 ## config.yaml parameters should be self explained
 
-```config.yaml
-Customize in the config.yaml with following vars:  
-own_ip: "<host ip where script runs on>"  
-own_mac: "<mac address where script runs on>"  
-  
-listening_name:  
-  - "<list of dnsname query to be listened to>"  
-  - "<second name entry>"  
-  
-listening_ip: "<ip address to be listened to>"  
-listening_mac: "<mac address of which the arp request to be listened to>"  
-  
-from_mail: "<local sendmail daemon from mail address>"  
-to_mail: "<local sendmail daemon to mail address>"  
-enable_mail: "<enable sendmail on wakeup event: True/False>"
-```
+Create a copy config.yal out of file config_template.yaml 
+and customize it to your needs
