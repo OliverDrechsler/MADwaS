@@ -287,13 +287,13 @@ def dns_query_check(pkt):
         monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
         logger.debug(f"{len(monitored_dict)}")
         if (len(monitored_dict) > 0):
-            logger.info("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
+            logger.debug("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
             ip_src = pkt[IP].src
             dns_name = (
                 str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
             )
             if ip_src != monitored_dict[0]['ip'] or ip_src not in config.blocked_ip: 
-                logger.info("checked for bloxk {} != {}".format(ip_src, config.blocked_ip))
+                logger.debug("checked for block {} != {}".format(ip_src, config.blocked_ip))
                 wakeup_objects = WakeupThread(
                     searched_ip=monitored_dict[0]["ip"],
                     searched_mac=monitored_dict[0]["mac"],
