@@ -250,7 +250,7 @@ def arp_check(pkt):
     :param pkt: sniffed full ethernet packet
     :type pkt: class
     :return: give a boolean feedback if a wol was send or not
-    :rtype: boolean
+    # :rtype: boolean
     """
     logger.debug(f"check arp paket {pkt[ARP].op} == 1")
     if pkt[ARP].op == 1:
@@ -273,11 +273,11 @@ def arp_check(pkt):
                     searched_dns=None,
                 )
                 add_object_to_thread_queue(wakeup_objects)
-                return True
+                # return True
 
     logger.debug(return_message)
     # maybe to fix below for unwanted syslog output
-    return False
+    # return False
 
 
 def dns_query_check(pkt):
@@ -313,12 +313,12 @@ def dns_query_check(pkt):
                     searched_dns=dns_name,
                 )
                 add_object_to_thread_queue(wakeup_objects)
-            return True
+            # return True
     except Exception:
         logger.exception(exception_message, exc_info=True)
 
     logger.debug(return_message)
-    return False
+    # return False
 
 
 def sniff_arp_and_dns(pkt):
@@ -345,7 +345,7 @@ def sniff_arp_and_dns(pkt):
         logger.debug("DNS paket detected")
         result = dns_query_check(pkt)
     logger.debug(f"return result {result}")
-    return result
+    # return result
 
 def load_config():
     """Load config file.
