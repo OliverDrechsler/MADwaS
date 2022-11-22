@@ -14,7 +14,7 @@ handlers:
     level: INFO
     formatter: verbose
     class: logging.handlers.RotatingFileHandler
-    filename: dns_wol.log
+    filename: /var/log/dns_wol.log
     mode: a
     maxBytes: 1048576
     backupCount: 10
@@ -23,6 +23,10 @@ loggers:
     level: INFO
     handlers: [console]
     propagate: no
+  sampleLogger:
+    level: INFO
+    handlers: [rotating_file_handler]
+    propagate: no
 root:
   level: INFO
-  handlers: [console]
+  handlers: [console,rotating_file_handler]
