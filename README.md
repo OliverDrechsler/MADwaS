@@ -1,106 +1,190 @@
-[![GitHub Action Status](https://github.com/OliverDrechsler/MADwaS/workflows/MADwaS/badge.svg)](https://github.com/OliverDrechsler/MADwaS/workflows/MADwaS/badge.svg)
+[![GitHub Action Status](https://github.com/OliverDrechsler/MADwaS/actions/workflows/pythonapp.yml/badge.svg)](https://github.com/OliverDrechsler/MADwaS/actions/workflows/pythonapp.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=OliverDrechsler_MADwaS&metric=alert_status)](https://sonarcloud.io/dashboard?id=OliverDrechsler_MADwaS)
 [![CodeFactor](https://www.codefactor.io/repository/github/oliverdrechsler/madwas/badge)](https://www.codefactor.io/repository/github/oliverdrechsler/madwas)
-[![wemake-python-styleguide](https://img.shields.io/badge/style-wemake-000000.svg)](https://github.com/wemake-services/wemake-python-styleguide)
-[![Updates](https://pyup.io/repos/github/OliverDrechsler/MADwaS/shield.svg)](https://pyup.io/repos/github/OliverDrechsler/MADwaS/)
-[![Python 3](https://pyup.io/repos/github/OliverDrechsler/MADwaS/python-3-shield.svg)](https://pyup.io/repos/github/OliverDrechsler/MADwaS/)
 [![Known Vulnerabilities](https://snyk.io/test/github/OliverDrechsler/MADwaS/badge.svg)](https://snyk.io/test/github/OliverDrechsler/MADwaS)
 
+# MADwaS
 
-# MADwaS - Monitor ARP queries and DNS queries to wakeup a Server
+MADwaS stands for Monitor ARP and DNS to Wake a Server. It listens for ARP `who-has`
+requests and DNS queries for configured targets. When a monitored target is requested,
+the script checks whether the target host is already reachable via ICMP. If not, it
+sends a Wake-on-LAN magic packet and can optionally send a notification email.
 
-- [MADwaS - Monitor ARP queries and DNS queries to wakeup a Server](#madwas---monitor-arp-queries-and-dns-queries-to-wakeup-a-server)
-  - [Intro](#intro)
-  - [UseCase](#usecase)
-  - [minimum requirements](#minimum-requirements)
-  - [first time setup](#first-time-setup)
-  - [run script as a systemd service](#run-script-as-a-systemd-service)
-  - [config.yaml parameters should be self explained](#configyaml-parameters-should-be-self-explained)
+## Table of Contents
 
+- [Overview](#overview)
+- [How It Works](#how-it-works)
+- [Code Explanation](#code-explanation)
+- [Requirements](#requirements)
+- [Configuration](#configuration)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Systemd Service](#systemd-service)
+- [Testing](#testing)
+- [CI Pipeline](#ci-pipeline)
 
-## Intro
+## Overview
 
-MADwaS - (M)onitor (A)RP queries and (D)NS queries to (w)akeup one or more (S)ervers
+Typical use case:
 
-This script sniffs on a network interface for:  
+- A NAS, media server, or VDR host is powered off most of the time.
+- A Raspberry Pi or another always-on Linux host runs this script.
+- When another client in the LAN asks for the sleeping host by ARP or DNS, the script
+  wakes that host automatically.
 
-- for one or multiple specific DNS Name query request (specified in config file) 
-and
-- for one or multiple specific ARP (who has) IPAddress requests (also specified in config yaml file)
+This is useful when you want on-demand access without running Wake-on-LAN scripts on
+every client device.
 
-It checks if a destination ip (server) is alive via icmp.  
-If not it sends a wake on lan magic packet and waits for a defined time period for the next check.  
-If a wakeup paket is send, it sends via local available mail service a notification mail about the wake up event.  
+## How It Works
 
-## UseCase
+1. The script loads `config.yaml` or falls back to `config_template.yaml`.
+2. It builds fast lookup tables for monitored IPs and DNS names.
+3. It sniffs only relevant traffic using the BPF filter:
+   `arp[6:2] == 1 or udp dst port 53`
+4. For matching packets, it ignores:
+   - requests originating from the local host
+   - blocked source IPs
+   - requests coming from the monitored host itself
+5. Eligible requests are queued.
+6. A worker thread performs:
+   - ICMP reachability check
+   - Wake-on-LAN if the host is down
+   - optional notification mail
+7. Duplicate wake requests for the same target IP are suppressed while one request is
+   already being processed.
 
-I run at home a [VDR](http://tvdr.de/) home theater pc.  
-This computer also acts as my file server (samba).  
-To save power consumption, this PC is often powered of.  
-It powers it self on for recording TV shows and powers off it self.  
-For that i use some plugins like [EPGSearch](http://www.vdr-wiki.de/wiki/index.php/Epgsearch-plugin) and [ACPIWakeup](http://www.vdr-wiki.de/wiki/index.php/ACPI_Wakeup).  
-So, mostly when i want to access my files the VDR is often powered off and my  
-File Server is not accessable.  
-To power on my VDR via LAN, i use the [wake on lan](http://www.vdr-wiki.de/wiki/index.php/WAKE_ON_LAN) feature.  
-But there's no independend place who does it automatically for my.  
-Okay, you can maybe run a wake on lan script on your client PC.  
-But i want automaticylly power on my VDR File Server when i come at home.  
-I use the [PhotoSync](https://www.photosync-app.com/de/index.html) App on my smartphone  
-to automatically tranfer all new photos to the VDR Server.  
-This is done via GeoFencing and when my smartphone connects into my WLAN.  
-So, i must nothing do, magic things happens and i have every time my fotos backuped.  
+## Code Explanation
 
-For that use case i need a independend third instance.  
-I have a Raspberry Pi running in my LAN which permanently powered on.  
-[PIHOLE](https://pi-hole.net/) runs on this one, but this does not play a role for my program/script.  
-It just has to run permanently somewhere.  
+Main parts of the code in [dns_wol.py](/Users/oliver/workspace/RPi/MADwaS/dns_wol.py:1):
 
-## minimum requirements
+- `WakeupRequest`
+  Stores the normalized wake-up job data passed from the sniffing path to the worker.
 
-- sudo / root permissions to run dns_wol.py script
-- min. Python 3.6 
-- Python pip installed
-- sendmail or other mail daemon running on host to send a mail i case of a wake up event occured  
-- LAN interface must be in the same LAN/VLAN or WLAN as File Server
+- `Configuration`
+  Loads YAML configuration, normalizes values, and builds two lookup maps:
+  `monitoring_by_ip` and `monitoring_by_dns`. This avoids repeated linear scans for
+  every packet and improves runtime behavior under broadcast-heavy traffic.
 
-LAN Device dependend capability:
+- `discover_local_ipv4_addresses()`
+  Detects IPv4 addresses assigned to the current host. These addresses are excluded so
+  that local follow-up traffic generated by the script host does not trigger additional
+  wake-up cycles.
 
-- connected to a LAN Switch Device - only ARP (who has) queries will work
-- connected to a LAN HUB Device - DNS queries will work
-- connected to a LAN Switch Device - but script runs on a DNS Server or [PiHole](https://pi-hole.net/), DNS queries will also work
-- connected to WLAN - WLAN Router must allow communication between WLAN Device - otherwise nothing will work.
+- `arp_check()` and `dns_query_check()`
+  Validate whether a packet is relevant and enqueue a `WakeupRequest` only when the
+  source is allowed and the destination is monitored.
 
-Host:
+- `add_object_to_thread_queue()`
+  Deduplicates pending wake requests by target IP before adding them to the worker
+  queue.
 
-- must be every time powered on
+- `check_thread_queue()`
+  Runs as a dedicated worker thread and processes wake-up jobs sequentially.
 
+- `wakeup_monitored_host()`
+  Performs the ICMP liveness check, sends the magic packet, triggers email notification,
+  waits for the configured spin-up interval, and finally clears the pending state.
 
-## first time setup
+## Requirements
 
-clone repo and configure settings
+- Linux host with permission to sniff packets and send ICMP/WoL packets
+- Python 3.10 or newer
+- A network position where ARP or DNS traffic for the target is visible
+- Optional local SMTP service on `localhost` for notification emails
+
+Network visibility notes:
+
+- On a switched network, ARP requests are usually the most reliable trigger.
+- DNS queries are visible when the script runs on the DNS server, on a shared network
+  segment, or in a topology where the relevant DNS traffic reaches the host.
+- On Wi-Fi, client isolation can prevent the required traffic from being visible.
+
+## Configuration
+
+Copy `config_template.yaml` to `config.yaml` and adjust it:
+
+```yaml
+version: 1
+
+blocked_ip:
+  - "192.168.101.2"
+wait_time: 45
+
+monitoring:
+  - dns_name: "server.example.local"
+    ip: "192.168.101.4"
+    mac: "d4:3d:7e:4a:16:87"
+
+from_mail: "madwas@example.local"
+to_mail: "admin@example.local"
+enable_mail: true
+```
+
+Important fields:
+
+- `blocked_ip`: source IPs that must never trigger a wake-up
+- `wait_time`: cooldown after a successful wake-up attempt
+- `monitoring`: list of targets to watch
+- `dns_name`: DNS query name that should trigger wake-up
+- `ip`: target IP used for ARP matching and ICMP checks
+- `mac`: target MAC address used for the magic packet
+- `enable_mail`: enables or disables notification mail
+
+## Installation
+
 ```bash
 git clone https://github.com/od2017/MADwaS.git
 cd MADwaS
-cp dns_wol.py /usr/local/bin
-cp config_template.yaml /usr/bin/local/config.yaml
-cp log_config /usr/bin/local
-vi /usr/local/bin/config.yaml  # modify config.yaml to your needs
+python3 -m pip install -r requirements.txt
+cp config_template.yaml config.yaml
 ```
 
-install python dependencies
+Then edit `config.yaml` and start the script with sufficient privileges:
+
 ```bash
-pip install -r requirements
-python3 dns_wol.py  # run first time - test and watch console output
-``` 
+sudo python3 dns_wol.py
+```
 
-## run script as a systemd service
+## Usage
 
-The file `dns_wol.service` is a example file for systemd and must be adjusted to  
-your personal needs. Copy the file to `/etc/systemd/system`.  
-And run bash `systemctl enable dns_wol.service` command to enable this new service.  
-To start service run `systemctl start dns_wol.service`  
+The script reads `log_config.yaml` for logging configuration and writes logs according
+to that file. By default it listens indefinitely until interrupted.
 
-## config.yaml parameters should be self explained
+## Systemd Service
 
-Create a copy config.yal out of file config_template.yaml 
-and customize it to your needs
+The repository includes `dns_wol.service` as an example unit file. Adjust it for your
+environment, then install and enable it:
+
+```bash
+sudo cp dns_wol.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable dns_wol.service
+sudo systemctl start dns_wol.service
+```
+
+## Testing
+
+Run the unit tests locally with:
+
+```bash
+python3 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+The test suite currently covers:
+
+- ignoring locally generated ARP requests
+- ignoring locally generated DNS requests
+- enqueuing valid remote ARP requests
+- enqueuing valid monitored DNS requests
+- deduplicating pending wake-up jobs
+- collecting local IPv4 addresses correctly
+
+## CI Pipeline
+
+GitHub Actions now run:
+
+- unit tests on Python 3.10, 3.11, 3.12, and 3.13
+- `flake8` for basic syntax and error linting
+- `bandit` for security scanning
+- `pylint` as an advisory quality signal
+- CodeQL analysis in a separate workflow
