@@ -14,7 +14,8 @@ handlers:
     level: INFO
     formatter: verbose
     class: logging.handlers.RotatingFileHandler
-    filename: /var/log/dns_wol.log
+    # dns_wol.py prefers /var/log/dns_wol.log and falls back to project-local dns_wol.log.
+    filename: dns_wol.log
     mode: a
     maxBytes: 1048576
     backupCount: 10

@@ -148,7 +148,19 @@ sudo python3 dns_wol.py
 ## Usage
 
 The script reads `log_config.yaml` for logging configuration and writes logs according
-to that file. By default it listens indefinitely until interrupted.
+to that file. By default the rotating file handler first tries the system log path
+`/var/log/dns_wol.log`. If that path is not writable for the current user, it falls
+back to the project-local `dns_wol.log` next to `dns_wol.py`, regardless of the
+current working directory. The script then listens indefinitely until interrupted.
+
+To force debug logging without editing `log_config.yaml`, start the script with
+`--debug`:
+
+```bash
+python3 dns_wol.py --debug
+```
+
+This overrides the configured logger and handler levels in memory for that run only.
 
 ## Systemd Service
 

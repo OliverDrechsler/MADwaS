@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 
+import argparse
 import logging
 import logging.config
+import os
 import queue
 import smtplib
 import socket
 import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from email.message import EmailMessage
 from pathlib import Path
@@ -26,15 +29,20 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.yaml"
 CONFIG_TEMPLATE_PATH = BASE_DIR / "config_template.yaml"
 LOG_CONFIG_PATH = BASE_DIR / "log_config.yaml"
+FALLBACK_LOG_FILE_PATH = BASE_DIR / "dns_wol.log"
+SYSTEM_LOG_FILE_PATHS = (Path("/var/log/dns_wol.log"),)
 
 logger = logging.getLogger(__name__)
 config = None
 work_queue = None
 pending_lock = threading.Lock()
 pending_requests = set()
+WAKEUP_REQUEST_DATACLASS_KWARGS = {"frozen": True}
+if sys.version_info >= (3, 10):
+    WAKEUP_REQUEST_DATACLASS_KWARGS["slots"] = True
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(**WAKEUP_REQUEST_DATACLASS_KWARGS)
 class WakeupRequest:
     searched_ip: str
     searched_mac: str
@@ -270,6 +278,63 @@ def load_config():
     config = Configuration()
 
 
+def parse_args(argv=None):
+    """Parse CLI options."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="force debug logging regardless of log_config.yaml",
+    )
+    return parser.parse_args(argv)
+
+
+def is_log_path_writable(log_file_path):
+    """Return True when the log file path can be opened by the current user."""
+    if log_file_path.exists():
+        return os.access(log_file_path, os.W_OK)
+
+    parent_dir = log_file_path.parent
+    return parent_dir.is_dir() and os.access(parent_dir, os.W_OK)
+
+
+def resolve_log_file_path():
+    """Prefer a system log file path and fall back to the project directory."""
+    for log_file_path in SYSTEM_LOG_FILE_PATHS:
+        if is_log_path_writable(log_file_path):
+            return log_file_path
+    return FALLBACK_LOG_FILE_PATH
+
+
+def load_log_config(force_debug=False):
+    """Load logging config and pin the log file to the project directory."""
+    with open(file=LOG_CONFIG_PATH, mode="r", encoding="utf-8") as file:
+        log_config = yaml.safe_load(file) or {}
+
+    # Keep the module logger active when the script is executed directly.
+    log_config.setdefault("disable_existing_loggers", False)
+
+    handlers = log_config.get("handlers", {})
+    rotating_handler = handlers.get("rotating_file_handler")
+    if rotating_handler is not None:
+        rotating_handler["filename"] = str(resolve_log_file_path())
+
+    if force_debug:
+        log_config["root"] = {**log_config.get("root", {}), "level": "DEBUG"}
+        for handler_config in handlers.values():
+            handler_config["level"] = "DEBUG"
+        for logger_config in log_config.get("loggers", {}).values():
+            logger_config["level"] = "DEBUG"
+
+    return log_config
+
+
+def report_fatal_exception(message):
+    """Log a fatal exception and mirror it to stderr for interactive runs."""
+    logger.exception(message, exc_info=True)
+    traceback.print_exc(file=sys.stderr)
+
+
 def clear_pending_request(ip_address):
     with pending_lock:
         pending_requests.discard(ip_address)
@@ -297,9 +362,8 @@ def add_object_to_thread_queue(wakeup_request):
 
 
 if __name__ == "__main__":
-    with open(file=LOG_CONFIG_PATH, mode="r", encoding="utf-8") as file:
-        log_config = yaml.safe_load(file)
-        logging.config.dictConfig(log_config)
+    args = parse_args()
+    logging.config.dictConfig(load_log_config(force_debug=args.debug))
     logger = logging.getLogger(__name__)
 
     logger.info("reading config file")
@@ -322,5 +386,5 @@ if __name__ == "__main__":
         logger.info("Exiting")
         sys.exit(1)
     except Exception:
-        logger.exception(EXCEPTION_MESSAGE, exc_info=True)
+        report_fatal_exception(EXCEPTION_MESSAGE)
         sys.exit(1)

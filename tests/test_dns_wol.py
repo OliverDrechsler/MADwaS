@@ -2,7 +2,7 @@ import queue
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, mock_open, patch
 
 sys.modules.setdefault("yaml", SimpleNamespace(safe_load=lambda *_args, **_kwargs: {}))
 sys.modules.setdefault("wakeonlan", SimpleNamespace(send_magic_packet=lambda *_args, **_kwargs: None))
@@ -186,6 +186,106 @@ class DnsWolTests(unittest.TestCase):
             local_ips = dns_wol.discover_local_ipv4_addresses()
 
         self.assertEqual(local_ips, {"127.0.0.1", "192.168.1.2", "192.168.1.3"})
+
+    def test_is_log_path_writable_uses_existing_file_permissions(self):
+        with patch.object(dns_wol.Path, "exists", return_value=True), patch.object(
+            dns_wol.os, "access", return_value=True
+        ) as access:
+            self.assertTrue(dns_wol.is_log_path_writable(dns_wol.SYSTEM_LOG_FILE_PATHS[0]))
+
+        access.assert_called_once_with(dns_wol.SYSTEM_LOG_FILE_PATHS[0], dns_wol.os.W_OK)
+
+    def test_resolve_log_file_path_prefers_system_log_path(self):
+        with patch.object(dns_wol, "is_log_path_writable", side_effect=[True]):
+            log_file_path = dns_wol.resolve_log_file_path()
+
+        self.assertEqual(log_file_path, dns_wol.SYSTEM_LOG_FILE_PATHS[0])
+
+    def test_resolve_log_file_path_falls_back_to_repo_log_path(self):
+        with patch.object(dns_wol, "is_log_path_writable", return_value=False):
+            log_file_path = dns_wol.resolve_log_file_path()
+
+        self.assertEqual(log_file_path, dns_wol.FALLBACK_LOG_FILE_PATH)
+
+    def test_load_log_config_resolves_preferred_log_path(self):
+        raw_log_config = {
+            "root": {"level": "INFO"},
+            "handlers": {
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "level": "INFO",
+                },
+                "rotating_file_handler": {
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "level": "INFO",
+                    "filename": "dns_wol.log",
+                }
+            },
+            "loggers": {
+                "sampleLogger": {
+                    "level": "INFO",
+                }
+            }
+        }
+
+        with patch("builtins.open", mock_open(read_data="ignored")), patch.object(
+            dns_wol.yaml, "safe_load", return_value=raw_log_config
+        ), patch.object(
+            dns_wol, "resolve_log_file_path", return_value=dns_wol.SYSTEM_LOG_FILE_PATHS[0]
+        ):
+            log_config = dns_wol.load_log_config()
+
+        self.assertEqual(
+            log_config["handlers"]["rotating_file_handler"]["filename"],
+            str(dns_wol.SYSTEM_LOG_FILE_PATHS[0]),
+        )
+        self.assertFalse(log_config["disable_existing_loggers"])
+
+    def test_load_log_config_force_debug_overrides_levels(self):
+        raw_log_config = {
+            "root": {"level": "INFO"},
+            "handlers": {
+                "console": {"level": "INFO"},
+                "rotating_file_handler": {"level": "WARNING", "filename": "dns_wol.log"},
+            },
+            "loggers": {
+                "sampleLogger": {"level": "ERROR"},
+            },
+        }
+
+        with patch("builtins.open", mock_open(read_data="ignored")), patch.object(
+            dns_wol.yaml, "safe_load", return_value=raw_log_config
+        ):
+            log_config = dns_wol.load_log_config(force_debug=True)
+
+        self.assertEqual(log_config["root"]["level"], "DEBUG")
+        self.assertEqual(log_config["handlers"]["console"]["level"], "DEBUG")
+        self.assertEqual(log_config["handlers"]["rotating_file_handler"]["level"], "DEBUG")
+        self.assertEqual(log_config["loggers"]["sampleLogger"]["level"], "DEBUG")
+
+    def test_parse_args_debug_flag(self):
+        args = dns_wol.parse_args(["--debug"])
+        self.assertTrue(args.debug)
+
+    def test_parse_args_default_debug_disabled(self):
+        args = dns_wol.parse_args([])
+        self.assertFalse(args.debug)
+
+    def test_report_fatal_exception_prints_traceback_to_stderr(self):
+        fake_logger = MagicMock()
+        stderr = SimpleNamespace(write=lambda *_args, **_kwargs: None, flush=lambda: None)
+
+        with patch.object(dns_wol, "logger", fake_logger), patch.object(
+            dns_wol.traceback, "print_exc"
+        ) as print_exc:
+            try:
+                raise RuntimeError("boom")
+            except RuntimeError:
+                with patch.object(dns_wol.sys, "stderr", stderr):
+                    dns_wol.report_fatal_exception(dns_wol.EXCEPTION_MESSAGE)
+
+        fake_logger.exception.assert_called_once_with(dns_wol.EXCEPTION_MESSAGE, exc_info=True)
+        print_exc.assert_called_once_with(file=stderr)
 
 
 if __name__ == "__main__":
