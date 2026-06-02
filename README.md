@@ -254,7 +254,13 @@ sudo systemctl start dns_wol.service
 Run the unit tests locally with:
 
 ```bash
-python3 -m unittest discover -s tests -p "test_*.py" -v
+python3 -m pytest -q tests/test_dns_wol.py
+```
+
+Run the tests with coverage using:
+
+```bash
+python3 -m pytest --cov=./ --cov-branch --cov-report=term-missing -q tests/test_dns_wol.py
 ```
 
 The test suite currently covers:
