@@ -7,14 +7,16 @@ wait_time: 45
 
 monitoring:
   - dns_name: "server.fritz.box"
-    ip: "10.2.2.2"
+    ip: "10.2.2.2"        # Primary address, usually IPv4
+    ipv6: "2001:db8::50"  # Optional IPv6 for the same host
     mac: "77:88:99:aa:bb:cc"
   - dns_name: "server.mydomain.local"
-    ip: "10.2.2.2"
+    ip: "10.2.2.2"        # IPv4 only host
+    mac: "77:88:99:aa:bb:cc"
+  - dns_name: "server-v6.mydomain.local"
+    ip: "2001:db8::60"    # IPv6-only host
     mac: "77:88:99:aa:bb:cc"
 
 from_mail: "from_name@mydoamin.local"
 to_mail: "to_name@mydoamin.local"
 enable_mail: <True/False>
-
-

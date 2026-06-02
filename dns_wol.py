@@ -1,399 +1,471 @@
 #!/usr/bin/env python3
 
-import sys
-from scapy.all import (
-    ARP,
-    IP,
-    ICMP,
-    DNS,
-    sniff,
-    sr1,
-    conf,
-)
-from wakeonlan import send_magic_packet
-import time
-import os
-import socket
-import yaml
-import smtplib
-from email.parser import Parser
-import threading
-import queue
+import argparse
+import ipaddress
 import logging
 import logging.config
+import os
+import queue
+import smtplib
+import socket
+import sys
+import threading
+import time
+import traceback
+from dataclasses import dataclass
+from email.message import EmailMessage
+from pathlib import Path
+from typing import Optional
+
+import yaml
+from scapy.all import ARP, DNS, ICMP, IP, IPv6, ICMPv6EchoRequest, conf, sniff, sr1
+from wakeonlan import send_magic_packet
 
 
-# static library variables
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 conf.sniff_promisc = True
 
-# own static constants
-exception_message = "Exception occurred"
+EXCEPTION_MESSAGE = "Exception occurred"
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = BASE_DIR / "config.yaml"
+CONFIG_TEMPLATE_PATH = BASE_DIR / "config_template.yaml"
+LOG_CONFIG_PATH = BASE_DIR / "log_config.yaml"
+FALLBACK_LOG_FILE_PATH = BASE_DIR / "dns_wol.log"
+SYSTEM_LOG_FILE_PATHS = (Path("/var/log/dns_wol.log"),)
+
+logger = logging.getLogger(__name__)
+config = None
+work_queue = None
+pending_lock = threading.Lock()
+pending_requests = set()
+WAKEUP_REQUEST_DATACLASS_KWARGS = {"frozen": True}
+if sys.version_info >= (3, 10):
+    WAKEUP_REQUEST_DATACLASS_KWARGS["slots"] = True
 
 
-class WakeupThread:
-    """
-    Stores attributes for monitored host to wakeup
-
-    Attributes:
-    searched_ip: monitored/listend ip / to wakeup
-    :type searched_ip: str
-    searched_mac: monitored/listend mac address / to wakeup
-    :type searched_mac: str
-    request_type: type of request - ARP (who is) or DNS name query
-    :type request_type: str
-    src_ip: orginating / source ip who has send this request
-    :type src_ip: str
-    searched_dns: queried dns name
-    :type searched_dns: default == None or provided str
-    """
-
-    def __init__(
-        self, searched_ip, searched_mac, request_type, src_ip, searched_dns=None
-    ):
-        """Initial class definition."""
-        self.searched_ip = searched_ip
-        self.searched_mac = searched_mac
-        self.request_type = request_type
-        self.src_ip = src_ip
-        self.searched_dns = searched_dns
+@dataclass(**WAKEUP_REQUEST_DATACLASS_KWARGS)
+class WakeupRequest:
+    searched_ip: str
+    searched_mac: str
+    request_type: str
+    src_ip: str
+    searched_dns: Optional[str] = None
+    monitored_ips: tuple[str, ...] = ()
+    pending_key: Optional[str] = None
 
 
 class Configuration:
-    """Reads gerneral yaml Config file into class.
-
-    Attributes:
-        blocked_ip: IP Address of host system where this code runs on
-        :type blocked_ip: list of str
-        # blocked_mac: MAC Address of host system where this code runs on
-        # :type blocked_mac: list of str
-        listing_ip: list of ip address which will be monitored / watched for action
-        :type listing_ip: list with str
-        listing_mac: list of mac address which will be monitored / watched for action
-        :type listing_mac: list with str
-        listing_name: list of dns name which will be monitored / watched for action
-        :type listing_name: list with str
-        from_mail: from mail address
-        :type from_mail: str
-        to_mail: to send mail address
-        :type to_mail: str
-    """
+    """Read the YAML config and prepare lookup tables."""
 
     def __init__(self):
-        """Initial class definition."""
-        self.define_config_file()
-        self.read_config(self.config_file)
-        self.blocked_ip = self.config["blocked_ip"]
-        self.monitoring = self.config["monitoring"]
-        self.from_mail = self.config["from_mail"]
-        self.to_mail = self.config["to_mail"]
-        self.enable_mail = self.config["enable_mail"]
-        self.wait_time = self.config["wait_time"]
-
-    def read_config(self, config_file):
-        """
-        Reads config.yaml file into variables.
-
-        :param none
-        :return: config: variable
-        :rtype: dict
-        """
-        with open(file=config_file, mode="r") as file:
-            self.config = yaml.load(file, Loader=yaml.SafeLoader)
-        logger.debug(self.config)
-
-    def define_config_file(self):
-        """
-        Checks and defines Config yaml path.
-
-        Defines a new class path atrribute.
-        """
-        if os.path.isfile(os.path.dirname(os.path.abspath(__file__)) + "/config.yaml"):
-            self.config_file = (
-                os.path.dirname(os.path.abspath(__file__)) + "/config.yaml"
+        self.config_file = CONFIG_PATH if CONFIG_PATH.is_file() else CONFIG_TEMPLATE_PATH
+        logger.debug("Using config file %s", self.config_file)
+        self.config = self.__read_config(self.config_file)
+        self.blocked_ip = {
+            normalized_ip
+            for normalized_ip in (
+                globals()["__normalize_ip_address"](ip_address)
+                for ip_address in self.config.get("blocked_ip", [])
             )
-            logger.debug(self.config_file)
-        else:
-            print("else")
-            self.config_file = (
-                os.path.dirname(os.path.abspath(__file__)) + "/config_template.yaml"
-            )
-            logger.debug(self.config_file)
+            if normalized_ip
+        }
+        self.monitoring = self.config.get("monitoring", [])
+        self.from_mail = self.config.get("from_mail", "")
+        self.to_mail = self.config.get("to_mail", "")
+        self.enable_mail = bool(self.config.get("enable_mail", False))
+        self.wait_time = int(self.config.get("wait_time", 45))
+        self.local_ip = globals()["__discover_local_ip_addresses"]()
+        self.monitoring_by_ip = {}
+        self.monitoring_by_dns = {}
+        self._build_lookup_tables()
+
+    @staticmethod
+    def __read_config(config_file):
+        with open(file=config_file, mode="r", encoding="utf-8") as file:
+            config = yaml.safe_load(file) or {}
+        logger.debug("Loaded config: %s", config)
+        return config
+
+    def _build_lookup_tables(self):
+        for entry in self.monitoring:
+            ip_addresses = self._extract_ip_addresses(entry)
+            dns_name = str(entry.get("dns_name", "")).lower().rstrip(".")
+            if not ip_addresses or not entry.get("mac"):
+                logger.warning("Skipping invalid monitoring entry: %s", entry)
+                continue
+
+            normalized_entry = dict(entry)
+            normalized_entry["ip_addresses"] = ip_addresses
+            normalized_entry["ip"] = ip_addresses[0]
+            normalized_entry["pending_key"] = "|".join(ip_addresses)
+            for ip_address in ip_addresses:
+                self.monitoring_by_ip[ip_address] = normalized_entry
+            if dns_name:
+                normalized_entry["dns_name"] = dns_name
+                self.monitoring_by_dns[dns_name] = normalized_entry
+
+    @staticmethod
+    def _extract_ip_addresses(entry):
+        ip_addresses = []
+        for field_name in ("ip", "ipv4", "ipv6"):
+            normalized_ip = globals()["__normalize_ip_address"](entry.get(field_name))
+            if normalized_ip and normalized_ip not in ip_addresses:
+                ip_addresses.append(normalized_ip)
+
+        for ip_value in entry.get("ips", []):
+            normalized_ip = globals()["__normalize_ip_address"](ip_value)
+            if normalized_ip and normalized_ip not in ip_addresses:
+                ip_addresses.append(normalized_ip)
+
+        return tuple(ip_addresses)
 
 
-def sendmail(_text, _from, _to):
-    """
-    Send a message to via local message queue.
-
-    :param _text: message text which will send
-    :type _text: str
-    :param _from: from mail address
-    :type _from: str
-    :param _to: to mail address
-    :type _to: str
-    :return: True/False, Tuple with smtp status code, message str
-    :rtype: boolean, tuple(int(status_code),str(mesasge of code))
-    """
-    if config.enable_mail:
-        _message = Parser().parsestr(
-            f"From: <{_from}>\n"
-            f"To: <{_to}>\n"
-            f"Subject: {_text}\n"
-            "\n"
-            f"{_text}\n"
-        )
-        s = smtplib.SMTP("localhost")
-        s.send_message(_message)
-        result = s.quit()
-        logger.debug(f"sendmail result code {result}")
-        if result[0] == int(221):
-            logger.debug(f"return True, {result}")
-            return True, result
-        else:
-            logger.debug(f"return False, {result}")
-            return False, result
-    else:
+def sendmail(message_text, sender, recipient):
+    """Send a message via the local SMTP daemon."""
+    if not config.enable_mail:
         return False, "sendmail disabled"
 
+    message = EmailMessage()
+    message["From"] = f"<{sender}>"
+    message["To"] = f"<{recipient}>"
+    message["Subject"] = message_text
+    message.set_content(message_text)
 
-def icmp_check(ipaddress):
-    """
-    Send a ping / icmp to ip to check if it is online.
-
-    :param ipaddress: ip v4 address
-    :type ipaddress: str
-    :return: success / failed boolean
-    :rtype: boolean
-    """
-    logger.info("ICMP checking if {0} is alive".format(ipaddress))
-    ans1 = sr1(IP(dst=ipaddress) / ICMP(), timeout=1, verbose=0)
-    logger.debug(f"first responce sr1={ans1}")
-    time.sleep(0.5)
-    resp = sr1(IP(dst=ipaddress) / ICMP(), timeout=1, verbose=0)
-    logger.debug(f"second responce sr1={resp}")
-    if resp is None:
-        logger.debug("icmp check responce = None")
-        logger.info("ICMP to IP {} is not answering".format(ipaddress))
-        return False
-    else:
-        logger.debug("icmp check responce = {}".format(resp.summary()))
-        logger.info("IP {} is alive!".format(ipaddress))
-        return True
-
-
-def wakeup_monitored_host(wakeup_class):
-    """
-    Wake monitored host / ip, if not alive via icmp
-
-    :param wakeup_class: from scapy sniffed thread new created class WakeupThread for wakeup host
-    :type _object_class_form_queue: class 
-    :return: if wakeup performed = True / if host alive = False
-    :rtype: boolean
-    """
     try:
-        if wakeup_class.searched_dns is None:
-            _asked_for = wakeup_class.searched_ip
+        with smtplib.SMTP("localhost") as smtp:
+            smtp.send_message(message)
+            logger.debug("sendmail result code 221")
+            return True, (221, b"Bye")
+    except OSError:
+        logger.exception("Sending mail failed")
+        return False, "smtp failed"
+
+
+def __normalize_ip_address(value):
+    """Return a normalized IP string or None for invalid values."""
+    if value in (None, ""):
+        return None
+
+    try:
+        return str(ipaddress.ip_address(str(value).strip()))
+    except ValueError:
+        return None
+
+
+def __discover_local_ip_addresses():
+    """Collect IPv4 and IPv6 addresses assigned to the local host."""
+    local_ips = {"127.0.0.1", "::1"}
+    for iface in conf.ifaces.values():
+        iface_ip = getattr(iface, "ip", None)
+        normalized_ip = __normalize_ip_address(iface_ip)
+        if normalized_ip:
+            local_ips.add(normalized_ip)
+
+    try:
+        host_entries = socket.getaddrinfo(socket.gethostname(), None, type=socket.SOCK_DGRAM)
+        for entry in host_entries:
+            ip_address = entry[4][0]
+            normalized_ip = __normalize_ip_address(ip_address)
+            if normalized_ip:
+                local_ips.add(normalized_ip)
+    except OSError:
+        logger.debug("Unable to resolve local host addresses via getaddrinfo")
+
+    logger.info("Ignoring packets originating from local IPs: %s", sorted(local_ips))
+    return local_ips
+
+
+def __icmp_check(ipaddress, attempts=2, timeout=1):
+    """Send ICMP echo requests to check if an IP is online."""
+    ip_obj = __ipaddress_module(ipaddress)
+    logger.info("ICMP checking if %s is alive", ipaddress)
+    for attempt in range(1, attempts + 1):
+        if ip_obj.version == 6:
+            packet = IPv6(dst=ipaddress) / ICMPv6EchoRequest()
         else:
-            _asked_for = wakeup_class.searched_dns
+            packet = IP(dst=ipaddress) / ICMP()
+        response = sr1(packet, timeout=timeout, verbose=0)
+        logger.debug("icmp attempt %s response=%s", attempt, response)
+        if response is not None:
+            logger.info("IP %s is alive", ipaddress)
+            return True
+    logger.info("ICMP to IP %s is not answering", ipaddress)
+    return False
+
+
+def __host_is_reachable(ip_addresses, attempts=2, timeout=1):
+    """Return True when any configured address for the host responds."""
+    for ip_address in ip_addresses:
+        if __icmp_check(ip_address, attempts=attempts, timeout=timeout):
+            return True
+    return False
+
+
+def wakeup_monitored_host(wakeup_request):
+    """Wake the monitored host if it does not answer ICMP."""
+    try:
+        asked_for = wakeup_request.searched_dns or wakeup_request.searched_ip
         logger.info(
-            f"{wakeup_class.request_type} request detected - {wakeup_class.src_ip} asks for {_asked_for}")
-
-        icmp_result = icmp_check(wakeup_class.searched_ip)
-        logger.debug(f"icmp_result: {icmp_result}")
-
-        if icmp_result is False:
-            logger.info(
-                "WoL WakeUp - {0} Request detected - IP {1} asks for {2}".format(
-                    wakeup_class.request_type,
-                    wakeup_class.src_ip,
-                    _asked_for
-                )
-            )
-            logger.debug(f"send wol paket to MAC address {wakeup_class.searched_mac} of IP {wakeup_class.searched_ip}")
-            send_magic_packet(wakeup_class.searched_mac)
-            logger.debug("send now email about wakeup")
-            sendmail(
-                "WoL WakeUp - {0} Request detected - IP {1} asks for {2}".format(
-                    wakeup_class.request_type,
-                    wakeup_class.src_ip,
-                    _asked_for,
-                ),
-                config.from_mail,
-                config.to_mail,
-            )
-            logger.debug(f"now wait {config.wait_time} seconds to spin up host")
-            time.sleep(config.wait_time)
-            logger.debug("Method return True")
-        else:
-            logger.info(f"no wake up  - icmp check: host is alive!")
-            logger.debug("Method return False")
-
-    except Exception:
-        logger.exception(exception_message, exc_info=True)
-
-
-
-def arp_check(pkt):
-    """Check ethernet packet for arp request
-
-    Checks if an arp request is send for watched/monitored MAC address and
-    sends than a WOL magic packet if IP is not alive/UP
-
-    :param pkt: sniffed full ethernet packet
-    :type pkt: class
-    :return: give a boolean feedback if a wol was send or not
-    # :rtype: boolean
-    """
-    logger.debug(f"check arp paket {pkt[ARP].op} == 1")
-    if pkt[ARP].op == 1:
-        searched_arp_ip = pkt[ARP].pdst
-        requestor_arp_ip = pkt[ARP].psrc
-        arp_asking_mac = pkt[ARP].hwsrc
-        logger.debug(
-            f"hwsrc {arp_asking_mac} psrc {requestor_arp_ip} pdst {searched_arp_ip}"
+            "%s request detected - %s asks for %s",
+            wakeup_request.request_type,
+            wakeup_request.src_ip,
+            asked_for,
         )
-        key, value = "ip", searched_arp_ip
-        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
-        if (len(monitored_dict) > 0):
-            logger.debug("monitored {} == searched {}".format(monitored_dict[0]['ip'],searched_arp_ip))
-            if requestor_arp_ip not in config.blocked_ip and requestor_arp_ip not in monitored_dict[0]['ip']:
-                logger.debug("check for blocked {} != {}".format(requestor_arp_ip, config.blocked_ip))
-                wakeup_objects = WakeupThread(
-                    searched_ip=searched_arp_ip,
-                    searched_mac=monitored_dict[0]["mac"],
-                    request_type="ARP",
-                    src_ip=requestor_arp_ip,
-                    searched_dns=None,
-                )
-                add_object_to_thread_queue(wakeup_objects)
+
+        monitored_ips = wakeup_request.monitored_ips or (wakeup_request.searched_ip,)
+        if __host_is_reachable(monitored_ips):
+            logger.info("No wake up needed - host %s is alive", ", ".join(monitored_ips))
+            return False
+
+        message = (
+            f"WoL WakeUp - {wakeup_request.request_type} Request detected - "
+            f"IP {wakeup_request.src_ip} asks for {asked_for}"
+        )
+        logger.info(message)
+        logger.debug(
+            "Sending WoL packet to MAC %s of IP %s",
+            wakeup_request.searched_mac,
+            wakeup_request.searched_ip,
+        )
+        send_magic_packet(wakeup_request.searched_mac)
+        sendmail(message, config.from_mail, config.to_mail)
+        logger.debug("Waiting %s seconds for host spin-up", config.wait_time)
+        time.sleep(config.wait_time)
+        return True
+    except Exception:
+        logger.exception(EXCEPTION_MESSAGE, exc_info=True)
+        return False
+    finally:
+        __clear_pending_request(__get_pending_request_key(wakeup_request))
 
 
-def dns_query_check(pkt):
-    """Checks ethernet packet for dns query.
+def __arp_check(pkt):
+    """Check if an ARP request targets a monitored host."""
+    logger.debug("check arp packet %s == 1", pkt[ARP].op)
+    if pkt[ARP].op != 1:
+        return
 
-    Checks if an IP dns query is send/received for watched/monitored IP address and
-    sends than a WOL magic packet if IP is not alive/UP
+    searched_arp_ip = __normalize_ip_address(pkt[ARP].pdst)
+    requestor_arp_ip = __normalize_ip_address(pkt[ARP].psrc)
+    if not searched_arp_ip or not requestor_arp_ip:
+        return
+    logger.debug(
+        "hwsrc %s psrc %s pdst %s",
+        pkt[ARP].hwsrc,
+        requestor_arp_ip,
+        searched_arp_ip,
+    )
 
-    :param pkt: sniffed full ethernet packet
-    :type pkt: class
-    :return: give a boolean feedback if a wol was send or not
-    :rtype: boolean
-    """
+    monitored_entry = config.monitoring_by_ip.get(searched_arp_ip)
+    if not monitored_entry:
+        return
+
+    logger.debug("monitored %s == searched %s", monitored_entry["ip"], searched_arp_ip)
+    if requestor_arp_ip in config.local_ip:
+        logger.debug("Ignoring locally generated ARP request from %s", requestor_arp_ip)
+        return
+
+    if requestor_arp_ip in config.blocked_ip or requestor_arp_ip in monitored_entry["ip_addresses"]:
+        return
+
+    logger.debug("ARP request accepted from %s", requestor_arp_ip)
+    __add_object_to_thread_queue(
+        WakeupRequest(
+            searched_ip=searched_arp_ip,
+            searched_mac=monitored_entry["mac"],
+            request_type="ARP",
+            src_ip=requestor_arp_ip,
+            monitored_ips=monitored_entry["ip_addresses"],
+            pending_key=monitored_entry["pending_key"],
+        )
+    )
+
+
+def __dns_query_check(pkt):
+    """Check if a DNS query targets a monitored host."""
     try:
-        logger.debug(
-            f"check dns query {str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')}"
-        )
-        key,value = 'dns_name',(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
-        monitored_dict = [ listingDict for listingDict in config.monitoring if listingDict.get(key) == value ]
-        logger.debug(f"{len(monitored_dict)}")
-        if (len(monitored_dict) > 0):
-            logger.debug("monitored {} == searched {}".format(monitored_dict[0]['dns_name'], str(pkt.getlayer(DNS).qd.qname.decode('ASCII')).lower().rstrip('.')))
-            ip_src = pkt[IP].src
-            dns_name = (
-                str(pkt.getlayer(DNS).qd.qname.decode("ASCII")).lower().rstrip(".")
+        dns_layer = pkt.getlayer(DNS)
+        if dns_layer.qd is None or dns_layer.qd.qname is None:
+            return
+
+        dns_name = dns_layer.qd.qname.decode("ascii", errors="ignore").lower().rstrip(".")
+        logger.debug("check dns query %s", dns_name)
+        monitored_entry = config.monitoring_by_dns.get(dns_name)
+        if not monitored_entry:
+            return
+
+        logger.debug("monitored %s == searched %s", monitored_entry["dns_name"], dns_name)
+        ip_src = __get_packet_source_ip(pkt)
+        if not ip_src:
+            logger.debug("Skipping DNS request without IP source layer")
+            return
+        if ip_src in config.local_ip:
+            logger.debug("Ignoring locally generated DNS request from %s", ip_src)
+            return
+
+        if ip_src in config.blocked_ip or ip_src in monitored_entry["ip_addresses"]:
+            return
+
+        logger.debug("DNS request accepted from %s", ip_src)
+        __add_object_to_thread_queue(
+            WakeupRequest(
+                searched_ip=monitored_entry["ip"],
+                searched_mac=monitored_entry["mac"],
+                request_type="DNS Query",
+                src_ip=ip_src,
+                searched_dns=dns_name,
+                monitored_ips=monitored_entry["ip_addresses"],
+                pending_key=monitored_entry["pending_key"],
             )
-            if ip_src not in monitored_dict[0]['ip'] and ip_src not in config.blocked_ip: 
-                logger.debug("checked for block {} != {}".format(ip_src, config.blocked_ip))
-                wakeup_objects = WakeupThread(
-                    searched_ip=monitored_dict[0]["ip"],
-                    searched_mac=monitored_dict[0]["mac"],
-                    request_type="DNS Query",
-                    src_ip=ip_src,
-                    searched_dns=dns_name,
-                )
-                add_object_to_thread_queue(wakeup_objects)
+        )
     except Exception:
-        logger.exception(exception_message, exc_info=True)
+        logger.exception(EXCEPTION_MESSAGE, exc_info=True)
 
 
-def sniff_arp_and_dns(pkt):
-    """Precheck sniffed ethernet packet for arp or dns query.
+def __ipaddress_module(value):
+    """Parse and return an ipaddress object."""
+    return ipaddress.ip_address(value)
 
-    Sniffed ethernet packet will be further checked,
-    if it is a IP packet with DNS query or
-    if it is a ARP packet.
 
-    :param pkt: sniffed full ethernet packet
-    :type pkt: class
-    :return: give result of sub method back
-    :rtype: result: boolean
-    """
-    result = None
-    logger.debug(f"sniffed paket to check: {pkt.summary()}")
-    # show full paket to stdout
-    # logger.debug(pkt.show())
+def __get_packet_source_ip(pkt):
+    """Return the source IP for IPv4 or IPv6 packets."""
+    if IP in pkt:
+        return __normalize_ip_address(pkt[IP].src)
+    if IPv6 in pkt:
+        return __normalize_ip_address(pkt[IPv6].src)
+    return None
+
+
+def __sniff_arp_and_dns(pkt):
+    """Pre-check sniffed ethernet packets for ARP or DNS queries."""
+    logger.debug("sniffed packet to check: %s", pkt.summary())
     if ARP in pkt:
-        logger.debug("ARP paket detected")
-        result = arp_check(pkt)
+        logger.debug("ARP packet detected")
+        __arp_check(pkt)
 
     if pkt.haslayer(DNS) and pkt.getlayer(DNS).qr == 0:
-        logger.debug("DNS paket detected")
-        result = dns_query_check(pkt)
-    logger.debug(f"return result {result}")
+        logger.debug("DNS packet detected")
+        __dns_query_check(pkt)
 
 
-def load_config():
-    """Load config file.
-
-    Loads config file into a class object which gloablly available variable.
-
-    :return: global config class variable
-    :rtype: class
-    """
+def __load_config():
     global config
     config = Configuration()
 
 
-def check_thread_queue():
+def parse_args(argv=None):
+    """Parse CLI options."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="force debug logging regardless of log_config.yaml",
+    )
+    return parser.parse_args(argv)
 
+
+def __is_log_path_writable(log_file_path):
+    """Return True when the log file path can be opened by the current user."""
+    if log_file_path.exists():
+        return os.access(log_file_path, os.W_OK)
+
+    parent_dir = log_file_path.parent
+    return parent_dir.is_dir() and os.access(parent_dir, os.W_OK)
+
+
+def __resolve_log_file_path():
+    """Prefer a system log file path and fall back to the project directory."""
+    for log_file_path in SYSTEM_LOG_FILE_PATHS:
+        if __is_log_path_writable(log_file_path):
+            return log_file_path
+    return FALLBACK_LOG_FILE_PATH
+
+
+def load_log_config(force_debug=False):
+    """Load logging config and pin the log file to the project directory."""
+    with open(file=LOG_CONFIG_PATH, mode="r", encoding="utf-8") as file:
+        log_config = yaml.safe_load(file) or {}
+
+    # Keep the module logger active when the script is executed directly.
+    log_config.setdefault("disable_existing_loggers", False)
+
+    handlers = log_config.get("handlers", {})
+    rotating_handler = handlers.get("rotating_file_handler")
+    if rotating_handler is not None:
+        rotating_handler["filename"] = str(__resolve_log_file_path())
+
+    if force_debug:
+        log_config["root"] = {**log_config.get("root", {}), "level": "DEBUG"}
+        for handler_config in handlers.values():
+            handler_config["level"] = "DEBUG"
+        for logger_config in log_config.get("loggers", {}).values():
+            logger_config["level"] = "DEBUG"
+
+    return log_config
+
+
+def __report_fatal_exception(message):
+    """Log a fatal exception and mirror it to stderr for interactive runs."""
+    logger.exception(message, exc_info=True)
+    traceback.print_exc(file=sys.stderr)
+
+
+def __clear_pending_request(ip_address):
+    with pending_lock:
+        pending_requests.discard(ip_address)
+
+
+def __check_thread_queue():
     logger.info("starting endless check queue loop")
-
     while True:
-        if not workQueue.empty():
-            logger.debug("get queue paket")
-            queueLock.acquire()
-            _object_class = workQueue.get_nowait()
-            wakeup_monitored_host(_object_class)
-            queueLock.release()
-        time.sleep(0.01)
+        wakeup_request = work_queue.get()
+        try:
+            wakeup_monitored_host(wakeup_request)
+        finally:
+            work_queue.task_done()
 
 
-def add_object_to_thread_queue(_object_class):
+def __add_object_to_thread_queue(wakeup_request):
+    pending_key = __get_pending_request_key(wakeup_request)
+    with pending_lock:
+        if pending_key in pending_requests:
+            logger.debug("Skipping duplicate wake request for %s", pending_key)
+            return
+        pending_requests.add(pending_key)
 
-    queueLock.acquire()
     logger.debug("add new class to queue for wakeup thread")
-    workQueue.put(_object_class)
-    queueLock.release()
+    work_queue.put(wakeup_request)
+
+
+def __get_pending_request_key(wakeup_request):
+    """Return the deduplication key for a wakeup request."""
+    return wakeup_request.pending_key or wakeup_request.searched_ip
 
 
 if __name__ == "__main__":
-    """Main method"""
-    with open(
-        file=os.path.dirname(os.path.abspath(__file__)) + "/log_config.yaml", mode="r"
-    ) as file:
-        log_config = yaml.load(file, Loader=yaml.SafeLoader)
-        logging.config.dictConfig(log_config)
+    args = parse_args()
+    logging.config.dictConfig(load_log_config(force_debug=args.debug))
     logger = logging.getLogger(__name__)
 
     logger.info("reading config file")
-    load_config()
+    __load_config()
 
     logger.info("setup thread queue")
-    queueLock = threading.Lock()
-    workQueue = queue.Queue()
+    work_queue = queue.Queue()
+    pending_lock = threading.Lock()
+    pending_requests = set()
 
-    loop_queue_check = threading.Thread(target=check_thread_queue)
+    loop_queue_check = threading.Thread(target=__check_thread_queue, daemon=True)
     logger.info("before running endless - queue check thread")
     loop_queue_check.start()
 
     try:
-        logger.info("starting scapy sniffing pakets")
-        sniff(prn=sniff_arp_and_dns, filter="arp[6:2] == 1 or udp dst port 53", store=0)
+        logger.info("starting scapy sniffing packets")
+        sniff(prn=__sniff_arp_and_dns, filter="arp[6:2] == 1 or udp dst port 53", store=0)
     except KeyboardInterrupt:
-        logger.exception(exception_message, exc_info=True)
-        logger.info("User Requested Shutdown...")
-        logger.info("Exiting...")
+        logger.info("User requested shutdown")
+        logger.info("Exiting")
         sys.exit(1)
-
-    logger.info("wait for the thread to finish")
-    logger.info("all done")
+    except Exception:
+        __report_fatal_exception(EXCEPTION_MESSAGE)
+        sys.exit(1)

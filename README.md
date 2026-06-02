@@ -1,106 +1,273 @@
-[![GitHub Action Status](https://github.com/OliverDrechsler/MADwaS/workflows/MADwaS/badge.svg)](https://github.com/OliverDrechsler/MADwaS/workflows/MADwaS/badge.svg)
+[![GitHub Action Status](https://github.com/OliverDrechsler/MADwaS/actions/workflows/pythonapp.yml/badge.svg)](https://github.com/OliverDrechsler/MADwaS/actions/workflows/pythonapp.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=OliverDrechsler_MADwaS&metric=alert_status)](https://sonarcloud.io/dashboard?id=OliverDrechsler_MADwaS)
 [![CodeFactor](https://www.codefactor.io/repository/github/oliverdrechsler/madwas/badge)](https://www.codefactor.io/repository/github/oliverdrechsler/madwas)
-[![wemake-python-styleguide](https://img.shields.io/badge/style-wemake-000000.svg)](https://github.com/wemake-services/wemake-python-styleguide)
-[![Updates](https://pyup.io/repos/github/OliverDrechsler/MADwaS/shield.svg)](https://pyup.io/repos/github/OliverDrechsler/MADwaS/)
-[![Python 3](https://pyup.io/repos/github/OliverDrechsler/MADwaS/python-3-shield.svg)](https://pyup.io/repos/github/OliverDrechsler/MADwaS/)
 [![Known Vulnerabilities](https://snyk.io/test/github/OliverDrechsler/MADwaS/badge.svg)](https://snyk.io/test/github/OliverDrechsler/MADwaS)
 
+# MADwaS
 
-# MADwaS - Monitor ARP queries and DNS queries to wakeup a Server
+MADwaS stands for Monitor ARP and DNS to Wake a Server. It is a small Python service
+for home labs and small LAN environments where a server should stay powered off until
+someone actually needs it.
 
-- [MADwaS - Monitor ARP queries and DNS queries to wakeup a Server](#madwas---monitor-arp-queries-and-dns-queries-to-wakeup-a-server)
-  - [Intro](#intro)
-  - [UseCase](#usecase)
-  - [minimum requirements](#minimum-requirements)
-  - [first time setup](#first-time-setup)
-  - [run script as a systemd service](#run-script-as-a-systemd-service)
-  - [config.yaml parameters should be self explained](#configyaml-parameters-should-be-self-explained)
+The script watches for ARP `who-has` requests and DNS queries for configured hosts. If
+a sleeping machine is requested, MADwaS checks whether that machine is already
+reachable. If it is still offline, MADwaS sends a Wake-on-LAN magic packet and can
+optionally send a notification email.
 
+MADwaS is aimed at setups such as:
 
-## Intro
+- a NAS that should wake only when a client tries to access it
+- a media server or VDR host (Linux Video Disk Recorder https://tvdr.de) that is not needed 24/7
+- a home lab machine that should become available on demand
+- a Raspberry Pi or other always-on Linux box acting as the wake-up controller
 
-MADwaS - (M)onitor (A)RP queries and (D)NS queries to (w)akeup one or more (S)ervers
+Configured hosts may use IPv4, IPv6, or both in a single monitoring entry.
 
-This script sniffs on a network interface for:  
+## Table of Contents
 
-- for one or multiple specific DNS Name query request (specified in config file) 
-and
-- for one or multiple specific ARP (who has) IPAddress requests (also specified in config yaml file)
+- [MADwaS](#madwas)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [How It Works](#how-it-works)
+  - [Code Explanation](#code-explanation)
+  - [Requirements](#requirements)
+  - [Configuration](#configuration)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Systemd Service](#systemd-service)
+  - [Testing](#testing)
 
-It checks if a destination ip (server) is alive via icmp.  
-If not it sends a wake on lan magic packet and waits for a defined time period for the next check.  
-If a wakeup paket is send, it sends via local available mail service a notification mail about the wake up event.  
+## Overview
 
-## UseCase
+MADwaS is designed for networks where one lightweight, always-on system can observe
+local traffic and wake a heavier system only when needed.
 
-I run at home a [VDR](http://tvdr.de/) home theater pc.  
-This computer also acts as my file server (samba).  
-To save power consumption, this PC is often powered of.  
-It powers it self on for recording TV shows and powers off it self.  
-For that i use some plugins like [EPGSearch](http://www.vdr-wiki.de/wiki/index.php/Epgsearch-plugin) and [ACPIWakeup](http://www.vdr-wiki.de/wiki/index.php/ACPI_Wakeup).  
-So, mostly when i want to access my files the VDR is often powered off and my  
-File Server is not accessable.  
-To power on my VDR via LAN, i use the [wake on lan](http://www.vdr-wiki.de/wiki/index.php/WAKE_ON_LAN) feature.  
-But there's no independend place who does it automatically for my.  
-Okay, you can maybe run a wake on lan script on your client PC.  
-But i want automaticylly power on my VDR File Server when i come at home.  
-I use the [PhotoSync](https://www.photosync-app.com/de/index.html) App on my smartphone  
-to automatically tranfer all new photos to the VDR Server.  
-This is done via GeoFencing and when my smartphone connects into my WLAN.  
-So, i must nothing do, magic things happens and i have every time my fotos backuped.  
+Typical deployment:
 
-For that use case i need a independend third instance.  
-I have a Raspberry Pi running in my LAN which permanently powered on.  
-[PIHOLE](https://pi-hole.net/) runs on this one, but this does not play a role for my program/script.  
-It just has to run permanently somewhere.  
+- A target host such as a NAS, media server, or lab server is asleep most of the time.
+- A Raspberry Pi or another low-power Linux host runs MADwaS continuously.
+- A client on the LAN tries to reach the sleeping host by name or address.
+- MADwaS detects that request and decides whether the host needs to be woken.
 
-## minimum requirements
+This approach is useful when you want:
 
-- sudo / root permissions to run dns_wol.py script
-- min. Python 3.6 
-- Python pip installed
-- sendmail or other mail daemon running on host to send a mail i case of a wake up event occured  
-- LAN interface must be in the same LAN/VLAN or WLAN as File Server
+- on-demand availability without teaching every client how to send WoL packets
+- lower power usage for machines that are only needed occasionally
+- one central place to manage wake-up behavior and logging
+- dual-stack support for hosts that use both IPv4 and IPv6
+- if you run a local DNS Server (e.g. Pi-Hole) in your local network where you can  
+  run MADwas (to make use of DNS name query monitoring)
 
-LAN Device dependend capability:
+## How It Works
 
-- connected to a LAN Switch Device - only ARP (who has) queries will work
-- connected to a LAN HUB Device - DNS queries will work
-- connected to a LAN Switch Device - but script runs on a DNS Server or [PiHole](https://pi-hole.net/), DNS queries will also work
-- connected to WLAN - WLAN Router must allow communication between WLAN Device - otherwise nothing will work.
+1. MADwaS loads `config.yaml` or, if it does not exist yet, falls back to
+   `config_template.yaml`.
+2. It normalizes the configured host data and builds lookup tables for monitored IP
+   addresses and DNS names.
+3. It starts packet sniffing with a narrow BPF filter:
+   `arp[6:2] == 1 or udp dst port 53`
+4. For each matching packet, MADwaS checks whether the request is relevant. It ignores:
+   - traffic generated by the host running MADwaS
+   - source IPs listed in `blocked_ip`
+   - requests coming from the monitored host itself
+5. For IPv4 targets, ARP requests and DNS queries can trigger a wake-up path. For
+   IPv6 targets, DNS queries are the trigger and ICMPv6 is used for reachability
+   checks.
+6. If one host entry contains both IPv4 and IPv6 addresses, MADwaS treats them as one
+   logical host. If either configured address answers, the host is considered online.
+7. Valid requests are placed into a worker queue.
+8. The worker thread checks whether the host is already reachable:
+   - ICMP echo for IPv4
+   - ICMPv6 echo for IPv6
+9. If the host is offline, MADwaS sends the Wake-on-LAN magic packet, optionally sends
+   a notification email, waits for the configured cooldown, and then accepts new wake
+   requests for that host.
+10. Duplicate requests for the same host are suppressed while one wake-up attempt is
+   still being processed.
 
-Host:
+## Code Explanation
 
-- must be every time powered on
+The implementation in [dns_wol.py](/Users/oliver/workspace/RPi/MADwaS/dns_wol.py:1)
+is intentionally compact. The main components are:
 
+- `WakeupRequest`
+  Represents one queued wake-up job. It carries the triggering source, the target MAC
+  address, the requested DNS name if present, and the normalized set of IP addresses
+  that belong to the host.
 
-## first time setup
+- `Configuration`
+  Reads the YAML configuration, normalizes IP data, and builds fast lookup maps for
+  packet matching. One configuration entry can describe a single host with multiple IP
+  addresses, including mixed IPv4 and IPv6.
 
-clone repo and configure settings
+- `__discover_local_ip_addresses()`
+  Collects the addresses assigned to the host running MADwaS. This prevents the script
+  from reacting to its own follow-up traffic.
+
+- `__arp_check()` and `__dns_query_check()`
+  Parse and validate sniffed packets. These functions decide whether a packet maps to a
+  monitored host and whether it should create a wake-up request.
+
+- `__add_object_to_thread_queue()`
+  Adds new wake-up work only if no other wake-up for the same host is already pending.
+
+- `__check_thread_queue()`
+  Runs as a dedicated worker thread. It processes queued requests one by one so that
+  wake-up handling stays simple and predictable.
+
+- `wakeup_monitored_host()`
+  Performs the actual decision and action flow: reachability check, WoL send,
+  notification mail, cooldown wait, and pending-state cleanup.
+
+## Requirements
+
+MADwaS is targeted at Linux-based always-on nodes in a local network, typically:
+
+- a Raspberry Pi
+- a small x86 mini PC
+- a home server that stays online all the time
+- a VM or container host with direct visibility into the relevant LAN traffic
+
+You need:
+
+- Linux with permission to sniff packets and send ICMP and WoL packets
+- Python 3.10 or newer
+- visibility of the ARP or DNS traffic that should trigger wake-ups
+- network reachability to send Wake-on-LAN packets to the target segment
+- optional local SMTP service on `localhost` if notification emails are wanted
+
+Network visibility notes:
+
+- On a typical switched LAN, ARP requests are often the most reliable trigger for IPv4
+  hosts.
+- DNS-based wake-up works best when MADwaS runs on the DNS server, near the DNS path,
+  or on a segment where those queries are visible.
+- IPv6 wake-up handling is DNS-driven. ARP is IPv4-only, so IPv6 hosts are not woken
+  by neighbor discovery traffic.
+- Wi-Fi client isolation, VLAN separation, or routed topologies can prevent the
+  required broadcast or query traffic from being visible.
+- MADwaS is not aimed at arbitrary internet-facing wake-up scenarios. It is intended
+  for trusted local networks where packet visibility is expected.
+
+## Configuration
+
+Copy `config_template.yaml` to `config.yaml` and adjust it:
+
+```yaml
+version: 1
+
+blocked_ip:
+  - "192.168.101.2"
+wait_time: 45
+
+monitoring:
+  - dns_name: "server.example.local"
+    ip: "192.168.101.4"
+    ipv6: "2001:db8::50"
+    mac: "d4:3d:7e:4a:16:87"
+  - dns_name: "server-v6-only.example.local"
+    ip: "2001:db8::60"
+    mac: "d4:3d:7e:4a:16:87"
+
+from_mail: "madwas@example.local"
+to_mail: "admin@example.local"
+enable_mail: true
+```
+
+Important fields:
+
+- `blocked_ip`: source IPs that must never trigger a wake-up
+- `wait_time`: cooldown after a successful wake-up attempt
+- `monitoring`: list of targets to watch
+- `dns_name`: DNS query name that should trigger wake-up
+- `ip`: primary target IP address; can be IPv4 or IPv6
+- `ipv4`: optional explicit IPv4 address for the same host if you prefer not to use `ip`
+- `ipv6`: optional IPv6 address for the same host
+- `ips`: optional list of additional IP addresses for the same host
+- `mac`: target MAC address used for the magic packet
+- `enable_mail`: enables or disables notification mail
+
+Example dual-stack host entry:
+
+```yaml
+monitoring:
+  - dns_name: "nas.example.local"
+    ip: "192.168.101.4"
+    ipv6: "2001:db8::50"
+    mac: "d4:3d:7e:4a:16:87"
+```
+
+Notes:
+
+- Use one monitoring entry per host when that host has both IPv4 and IPv6 addresses.
+- ARP matching only applies to the IPv4 address.
+- DNS triggers work for both IPv4 and IPv6 hosts.
+- Reachability checks try all configured addresses for the host and skip Wake-on-LAN if
+  any one of them answers.
+
+## Installation
+
 ```bash
 git clone https://github.com/od2017/MADwaS.git
 cd MADwaS
-cp dns_wol.py /usr/local/bin
-cp config_template.yaml /usr/bin/local/config.yaml
-cp log_config /usr/bin/local
-vi /usr/local/bin/config.yaml  # modify config.yaml to your needs
+python3 -m pip install -r requirements.txt
+cp config_template.yaml config.yaml
 ```
 
-install python dependencies
+Then edit `config.yaml` and start the script with sufficient privileges:
+
 ```bash
-pip install -r requirements
-python3 dns_wol.py  # run first time - test and watch console output
-``` 
+sudo python3 dns_wol.py
+```
 
-## run script as a systemd service
+## Usage
 
-The file `dns_wol.service` is a example file for systemd and must be adjusted to  
-your personal needs. Copy the file to `/etc/systemd/system`.  
-And run bash `systemctl enable dns_wol.service` command to enable this new service.  
-To start service run `systemctl start dns_wol.service`  
+The script reads `log_config.yaml` for logging configuration and writes logs according
+to that file. By default the rotating file handler first tries the system log path
+`/var/log/dns_wol.log`. If that path is not writable for the current user, it falls
+back to the project-local `dns_wol.log` next to `dns_wol.py`, regardless of the
+current working directory. The script then listens indefinitely until interrupted.
 
-## config.yaml parameters should be self explained
+To force debug logging without editing `log_config.yaml`, start the script with
+`--debug`:
 
-Create a copy config.yal out of file config_template.yaml 
-and customize it to your needs
+```bash
+python3 dns_wol.py --debug
+```
+
+This overrides the configured logger and handler levels in memory for that run only.
+
+## Systemd Service
+
+The repository includes `dns_wol.service` as an example unit file. Adjust it for your
+environment, then install and enable it:
+
+```bash
+sudo cp dns_wol.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable dns_wol.service
+sudo systemctl start dns_wol.service
+```
+
+## Testing
+
+Run the unit tests locally with:
+
+```bash
+python3 -m pytest -q tests/test_dns_wol.py
+```
+
+Run the tests with coverage using:
+
+```bash
+python3 -m pytest --cov=./ --cov-branch --cov-report=term-missing -q tests/test_dns_wol.py
+```
+
+The test suite currently covers:
+
+- ignoring locally generated ARP requests
+- ignoring locally generated DNS requests
+- enqueuing valid remote ARP requests
+- enqueuing valid monitored DNS requests
+- deduplicating pending wake-up jobs across IPv4 and IPv6 addresses of the same host
+- collecting local IPv4 and IPv6 addresses correctly
