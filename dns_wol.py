@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import ipaddress
 import logging
 import logging.config
 import os
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from scapy.all import ARP, DNS, ICMP, IP, conf, sniff, sr1
+from scapy.all import ARP, DNS, ICMP, IP, IPv6, ICMPv6EchoRequest, conf, sniff, sr1
 from wakeonlan import send_magic_packet
 
 
@@ -49,6 +50,8 @@ class WakeupRequest:
     request_type: str
     src_ip: str
     searched_dns: Optional[str] = None
+    monitored_ips: tuple[str, ...] = ()
+    pending_key: Optional[str] = None
 
 
 class Configuration:
@@ -57,20 +60,27 @@ class Configuration:
     def __init__(self):
         self.config_file = CONFIG_PATH if CONFIG_PATH.is_file() else CONFIG_TEMPLATE_PATH
         logger.debug("Using config file %s", self.config_file)
-        self.config = self.read_config(self.config_file)
-        self.blocked_ip = set(self.config.get("blocked_ip", []))
+        self.config = self.__read_config(self.config_file)
+        self.blocked_ip = {
+            normalized_ip
+            for normalized_ip in (
+                globals()["__normalize_ip_address"](ip_address)
+                for ip_address in self.config.get("blocked_ip", [])
+            )
+            if normalized_ip
+        }
         self.monitoring = self.config.get("monitoring", [])
         self.from_mail = self.config.get("from_mail", "")
         self.to_mail = self.config.get("to_mail", "")
         self.enable_mail = bool(self.config.get("enable_mail", False))
         self.wait_time = int(self.config.get("wait_time", 45))
-        self.local_ip = discover_local_ipv4_addresses()
+        self.local_ip = globals()["__discover_local_ip_addresses"]()
         self.monitoring_by_ip = {}
         self.monitoring_by_dns = {}
         self._build_lookup_tables()
 
     @staticmethod
-    def read_config(config_file):
+    def __read_config(config_file):
         with open(file=config_file, mode="r", encoding="utf-8") as file:
             config = yaml.safe_load(file) or {}
         logger.debug("Loaded config: %s", config)
@@ -78,16 +88,36 @@ class Configuration:
 
     def _build_lookup_tables(self):
         for entry in self.monitoring:
-            ip_address = entry.get("ip")
+            ip_addresses = self._extract_ip_addresses(entry)
             dns_name = str(entry.get("dns_name", "")).lower().rstrip(".")
-            if not ip_address or not entry.get("mac"):
+            if not ip_addresses or not entry.get("mac"):
                 logger.warning("Skipping invalid monitoring entry: %s", entry)
                 continue
-            self.monitoring_by_ip[ip_address] = entry
+
+            normalized_entry = dict(entry)
+            normalized_entry["ip_addresses"] = ip_addresses
+            normalized_entry["ip"] = ip_addresses[0]
+            normalized_entry["pending_key"] = "|".join(ip_addresses)
+            for ip_address in ip_addresses:
+                self.monitoring_by_ip[ip_address] = normalized_entry
             if dns_name:
-                normalized_entry = dict(entry)
                 normalized_entry["dns_name"] = dns_name
                 self.monitoring_by_dns[dns_name] = normalized_entry
+
+    @staticmethod
+    def _extract_ip_addresses(entry):
+        ip_addresses = []
+        for field_name in ("ip", "ipv4", "ipv6"):
+            normalized_ip = globals()["__normalize_ip_address"](entry.get(field_name))
+            if normalized_ip and normalized_ip not in ip_addresses:
+                ip_addresses.append(normalized_ip)
+
+        for ip_value in entry.get("ips", []):
+            normalized_ip = globals()["__normalize_ip_address"](ip_value)
+            if normalized_ip and normalized_ip not in ip_addresses:
+                ip_addresses.append(normalized_ip)
+
+        return tuple(ip_addresses)
 
 
 def sendmail(message_text, sender, recipient):
@@ -111,25 +141,33 @@ def sendmail(message_text, sender, recipient):
         return False, "smtp failed"
 
 
-def discover_local_ipv4_addresses():
-    """Collect IPv4 addresses assigned to the local host."""
-    local_ips = {"127.0.0.1"}
-    for iface in conf.ifaces.values():
-        iface_ip = getattr(iface, "ip", None)
-        if iface_ip and "." in str(iface_ip):
-            local_ips.add(str(iface_ip))
+def __normalize_ip_address(value):
+    """Return a normalized IP string or None for invalid values."""
+    if value in (None, ""):
+        return None
 
     try:
-        host_entries = socket.getaddrinfo(
-            socket.gethostname(),
-            None,
-            family=socket.AF_INET,
-            type=socket.SOCK_DGRAM,
-        )
+        return str(ipaddress.ip_address(str(value).strip()))
+    except ValueError:
+        return None
+
+
+def __discover_local_ip_addresses():
+    """Collect IPv4 and IPv6 addresses assigned to the local host."""
+    local_ips = {"127.0.0.1", "::1"}
+    for iface in conf.ifaces.values():
+        iface_ip = getattr(iface, "ip", None)
+        normalized_ip = __normalize_ip_address(iface_ip)
+        if normalized_ip:
+            local_ips.add(normalized_ip)
+
+    try:
+        host_entries = socket.getaddrinfo(socket.gethostname(), None, type=socket.SOCK_DGRAM)
         for entry in host_entries:
             ip_address = entry[4][0]
-            if ip_address:
-                local_ips.add(ip_address)
+            normalized_ip = __normalize_ip_address(ip_address)
+            if normalized_ip:
+                local_ips.add(normalized_ip)
     except OSError:
         logger.debug("Unable to resolve local host addresses via getaddrinfo")
 
@@ -137,16 +175,29 @@ def discover_local_ipv4_addresses():
     return local_ips
 
 
-def icmp_check(ipaddress, attempts=2, timeout=1):
+def __icmp_check(ipaddress, attempts=2, timeout=1):
     """Send ICMP echo requests to check if an IP is online."""
+    ip_obj = __ipaddress_module(ipaddress)
     logger.info("ICMP checking if %s is alive", ipaddress)
     for attempt in range(1, attempts + 1):
-        response = sr1(IP(dst=ipaddress) / ICMP(), timeout=timeout, verbose=0)
+        if ip_obj.version == 6:
+            packet = IPv6(dst=ipaddress) / ICMPv6EchoRequest()
+        else:
+            packet = IP(dst=ipaddress) / ICMP()
+        response = sr1(packet, timeout=timeout, verbose=0)
         logger.debug("icmp attempt %s response=%s", attempt, response)
         if response is not None:
             logger.info("IP %s is alive", ipaddress)
             return True
     logger.info("ICMP to IP %s is not answering", ipaddress)
+    return False
+
+
+def __host_is_reachable(ip_addresses, attempts=2, timeout=1):
+    """Return True when any configured address for the host responds."""
+    for ip_address in ip_addresses:
+        if __icmp_check(ip_address, attempts=attempts, timeout=timeout):
+            return True
     return False
 
 
@@ -161,8 +212,9 @@ def wakeup_monitored_host(wakeup_request):
             asked_for,
         )
 
-        if icmp_check(wakeup_request.searched_ip):
-            logger.info("No wake up needed - host %s is alive", wakeup_request.searched_ip)
+        monitored_ips = wakeup_request.monitored_ips or (wakeup_request.searched_ip,)
+        if __host_is_reachable(monitored_ips):
+            logger.info("No wake up needed - host %s is alive", ", ".join(monitored_ips))
             return False
 
         message = (
@@ -184,17 +236,19 @@ def wakeup_monitored_host(wakeup_request):
         logger.exception(EXCEPTION_MESSAGE, exc_info=True)
         return False
     finally:
-        clear_pending_request(wakeup_request.searched_ip)
+        __clear_pending_request(__get_pending_request_key(wakeup_request))
 
 
-def arp_check(pkt):
+def __arp_check(pkt):
     """Check if an ARP request targets a monitored host."""
     logger.debug("check arp packet %s == 1", pkt[ARP].op)
     if pkt[ARP].op != 1:
         return
 
-    searched_arp_ip = pkt[ARP].pdst
-    requestor_arp_ip = pkt[ARP].psrc
+    searched_arp_ip = __normalize_ip_address(pkt[ARP].pdst)
+    requestor_arp_ip = __normalize_ip_address(pkt[ARP].psrc)
+    if not searched_arp_ip or not requestor_arp_ip:
+        return
     logger.debug(
         "hwsrc %s psrc %s pdst %s",
         pkt[ARP].hwsrc,
@@ -211,21 +265,23 @@ def arp_check(pkt):
         logger.debug("Ignoring locally generated ARP request from %s", requestor_arp_ip)
         return
 
-    if requestor_arp_ip in config.blocked_ip or requestor_arp_ip == monitored_entry["ip"]:
+    if requestor_arp_ip in config.blocked_ip or requestor_arp_ip in monitored_entry["ip_addresses"]:
         return
 
     logger.debug("ARP request accepted from %s", requestor_arp_ip)
-    add_object_to_thread_queue(
+    __add_object_to_thread_queue(
         WakeupRequest(
             searched_ip=searched_arp_ip,
             searched_mac=monitored_entry["mac"],
             request_type="ARP",
             src_ip=requestor_arp_ip,
+            monitored_ips=monitored_entry["ip_addresses"],
+            pending_key=monitored_entry["pending_key"],
         )
     )
 
 
-def dns_query_check(pkt):
+def __dns_query_check(pkt):
     """Check if a DNS query targets a monitored host."""
     try:
         dns_layer = pkt.getlayer(DNS)
@@ -239,41 +295,60 @@ def dns_query_check(pkt):
             return
 
         logger.debug("monitored %s == searched %s", monitored_entry["dns_name"], dns_name)
-        ip_src = pkt[IP].src
+        ip_src = __get_packet_source_ip(pkt)
+        if not ip_src:
+            logger.debug("Skipping DNS request without IP source layer")
+            return
         if ip_src in config.local_ip:
             logger.debug("Ignoring locally generated DNS request from %s", ip_src)
             return
 
-        if ip_src in config.blocked_ip or ip_src == monitored_entry["ip"]:
+        if ip_src in config.blocked_ip or ip_src in monitored_entry["ip_addresses"]:
             return
 
         logger.debug("DNS request accepted from %s", ip_src)
-        add_object_to_thread_queue(
+        __add_object_to_thread_queue(
             WakeupRequest(
                 searched_ip=monitored_entry["ip"],
                 searched_mac=monitored_entry["mac"],
                 request_type="DNS Query",
                 src_ip=ip_src,
                 searched_dns=dns_name,
+                monitored_ips=monitored_entry["ip_addresses"],
+                pending_key=monitored_entry["pending_key"],
             )
         )
     except Exception:
         logger.exception(EXCEPTION_MESSAGE, exc_info=True)
 
 
-def sniff_arp_and_dns(pkt):
+def __ipaddress_module(value):
+    """Parse and return an ipaddress object."""
+    return ipaddress.ip_address(value)
+
+
+def __get_packet_source_ip(pkt):
+    """Return the source IP for IPv4 or IPv6 packets."""
+    if IP in pkt:
+        return __normalize_ip_address(pkt[IP].src)
+    if IPv6 in pkt:
+        return __normalize_ip_address(pkt[IPv6].src)
+    return None
+
+
+def __sniff_arp_and_dns(pkt):
     """Pre-check sniffed ethernet packets for ARP or DNS queries."""
     logger.debug("sniffed packet to check: %s", pkt.summary())
     if ARP in pkt:
         logger.debug("ARP packet detected")
-        arp_check(pkt)
+        __arp_check(pkt)
 
     if pkt.haslayer(DNS) and pkt.getlayer(DNS).qr == 0:
         logger.debug("DNS packet detected")
-        dns_query_check(pkt)
+        __dns_query_check(pkt)
 
 
-def load_config():
+def __load_config():
     global config
     config = Configuration()
 
@@ -289,7 +364,7 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def is_log_path_writable(log_file_path):
+def __is_log_path_writable(log_file_path):
     """Return True when the log file path can be opened by the current user."""
     if log_file_path.exists():
         return os.access(log_file_path, os.W_OK)
@@ -298,10 +373,10 @@ def is_log_path_writable(log_file_path):
     return parent_dir.is_dir() and os.access(parent_dir, os.W_OK)
 
 
-def resolve_log_file_path():
+def __resolve_log_file_path():
     """Prefer a system log file path and fall back to the project directory."""
     for log_file_path in SYSTEM_LOG_FILE_PATHS:
-        if is_log_path_writable(log_file_path):
+        if __is_log_path_writable(log_file_path):
             return log_file_path
     return FALLBACK_LOG_FILE_PATH
 
@@ -317,7 +392,7 @@ def load_log_config(force_debug=False):
     handlers = log_config.get("handlers", {})
     rotating_handler = handlers.get("rotating_file_handler")
     if rotating_handler is not None:
-        rotating_handler["filename"] = str(resolve_log_file_path())
+        rotating_handler["filename"] = str(__resolve_log_file_path())
 
     if force_debug:
         log_config["root"] = {**log_config.get("root", {}), "level": "DEBUG"}
@@ -329,18 +404,18 @@ def load_log_config(force_debug=False):
     return log_config
 
 
-def report_fatal_exception(message):
+def __report_fatal_exception(message):
     """Log a fatal exception and mirror it to stderr for interactive runs."""
     logger.exception(message, exc_info=True)
     traceback.print_exc(file=sys.stderr)
 
 
-def clear_pending_request(ip_address):
+def __clear_pending_request(ip_address):
     with pending_lock:
         pending_requests.discard(ip_address)
 
 
-def check_thread_queue():
+def __check_thread_queue():
     logger.info("starting endless check queue loop")
     while True:
         wakeup_request = work_queue.get()
@@ -350,15 +425,21 @@ def check_thread_queue():
             work_queue.task_done()
 
 
-def add_object_to_thread_queue(wakeup_request):
+def __add_object_to_thread_queue(wakeup_request):
+    pending_key = __get_pending_request_key(wakeup_request)
     with pending_lock:
-        if wakeup_request.searched_ip in pending_requests:
-            logger.debug("Skipping duplicate wake request for %s", wakeup_request.searched_ip)
+        if pending_key in pending_requests:
+            logger.debug("Skipping duplicate wake request for %s", pending_key)
             return
-        pending_requests.add(wakeup_request.searched_ip)
+        pending_requests.add(pending_key)
 
     logger.debug("add new class to queue for wakeup thread")
     work_queue.put(wakeup_request)
+
+
+def __get_pending_request_key(wakeup_request):
+    """Return the deduplication key for a wakeup request."""
+    return wakeup_request.pending_key or wakeup_request.searched_ip
 
 
 if __name__ == "__main__":
@@ -367,24 +448,24 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     logger.info("reading config file")
-    load_config()
+    __load_config()
 
     logger.info("setup thread queue")
     work_queue = queue.Queue()
     pending_lock = threading.Lock()
     pending_requests = set()
 
-    loop_queue_check = threading.Thread(target=check_thread_queue, daemon=True)
+    loop_queue_check = threading.Thread(target=__check_thread_queue, daemon=True)
     logger.info("before running endless - queue check thread")
     loop_queue_check.start()
 
     try:
         logger.info("starting scapy sniffing packets")
-        sniff(prn=sniff_arp_and_dns, filter="arp[6:2] == 1 or udp dst port 53", store=0)
+        sniff(prn=__sniff_arp_and_dns, filter="arp[6:2] == 1 or udp dst port 53", store=0)
     except KeyboardInterrupt:
         logger.info("User requested shutdown")
         logger.info("Exiting")
         sys.exit(1)
     except Exception:
-        report_fatal_exception(EXCEPTION_MESSAGE)
+        __report_fatal_exception(EXCEPTION_MESSAGE)
         sys.exit(1)
