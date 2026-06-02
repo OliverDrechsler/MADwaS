@@ -1,4 +1,4 @@
-[![GitHub Action Status](https://github.com/OliverDrechsler/MADwaS/actions/workflows/pythonapp.yml/badge.svg)](https://github.com/OliverDrechsler/MADwaS/actions/workflows/pythonapp.yml)
+[![GitHub Action Status](https://github.com/OliverDrechsler/MADwaS/actions/workflows/ci.yaml/badge.svg)](https://github.com/OliverDrechsler/MADwaS/actions/workflows/ci.yaml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=OliverDrechsler_MADwaS&metric=alert_status)](https://sonarcloud.io/dashboard?id=OliverDrechsler_MADwaS)
 [![CodeFactor](https://www.codefactor.io/repository/github/oliverdrechsler/madwas/badge)](https://www.codefactor.io/repository/github/oliverdrechsler/madwas)
 [![Known Vulnerabilities](https://snyk.io/test/github/OliverDrechsler/MADwaS/badge.svg)](https://snyk.io/test/github/OliverDrechsler/MADwaS)
