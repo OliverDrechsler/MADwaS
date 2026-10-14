@@ -4,8 +4,12 @@ on:
   pull_request:
     types: [closed]
     branches: [master]
+  workflow_run:
+    workflows: [ci build and test code]
+    types: [completed]
 
 permissions:
+  actions: read
   contents: write  # nötig um Tags und Releases zu erstellen
 
 jobs:
@@ -17,6 +21,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0  # wir brauchen die gesamte Historie
 
       - name: Set up Git
@@ -131,4 +136,57 @@ jobs:
             **Version bump type:** ${{ steps.next_tag.outputs.bump_type }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  attach-artifacts:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout CI commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: madwas-*
+          path: artifacts
+          merge-multiple: false
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for release of CI commit
+        id: release_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in $(seq 1 60); do
+            git fetch --tags
+            TAG=$(git tag --points-at "${{ github.event.workflow_run.head_sha }}" | sort -V | tail -n 1)
+            if [ -n "$TAG" ] && gh release view "$TAG" >/dev/null 2>&1; then
+              echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "No release found for CI commit after 10 minutes."
+          exit 1
+
+      - name: Create platform archives
+        run: |
+          mkdir -p release-assets
+          for artifact_dir in artifacts/madwas-*; do
+            artifact_name="${artifact_dir##*/}"
+            zip -qr "release-assets/${artifact_name}.zip" "$artifact_dir"
+          done
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.release_tag.outputs.tag }}" release-assets/*.zip --clobber
           
