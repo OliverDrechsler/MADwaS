@@ -74,9 +74,9 @@ jobs:
           - name: linux-x64
             os: ubuntu-latest
             binary_path: dist/madwas
-          - name: linux-armv6
-            os: [self-hosted, linux, ARMv6]
-            binary_path: dist/madwas
+          # - name: linux-armv6
+          #   os: [self-hosted, linux, ARMv6]
+          #   binary_path: dist/madwas
           - name: linux-arm64
             os: ubuntu-24.04-arm
             binary_path: dist/madwas
