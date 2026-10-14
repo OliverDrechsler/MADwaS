@@ -58,3 +58,74 @@ jobs:
       uses: codecov/codecov-action@v6
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  build-artifacts:
+    name: Build artifact (${{ matrix.name }})
+    if: github.event_name == 'push' && github.ref_name == 'master'
+    needs: [build, test]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            binary_path: dist/madwas.exe
+          - name: linux-x64
+            os: ubuntu-latest
+            binary_path: dist/madwas
+          - name: linux-armv6
+            os: [self-hosted, linux, ARMv6]
+            binary_path: dist/madwas
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            binary_path: dist/madwas
+          - name: macos-intel
+            os: macos-15-intel
+            binary_path: dist/madwas
+          - name: macos-arm64
+            os: macos-14
+            binary_path: dist/madwas
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14
+        if: matrix.name != 'linux-armv6'
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.14
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build executable
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            DATA_SEP=";"
+          else
+            DATA_SEP=":"
+          fi
+          pyinstaller --clean --noconfirm --onefile \
+            --add-data "config_template.yaml${DATA_SEP}." \
+            --add-data "log_config.yaml${DATA_SEP}." \
+            --name madwas dns_wol.py
+
+      - name: Package executable and configuration
+        shell: bash
+        run: |
+          mkdir -p package
+          cp "${{ matrix.binary_path }}" package/
+          cp config_template.yaml package/config.yaml
+          cp log_config.yaml package/log_config.yaml
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: madwas-${{ matrix.name }}
+          path: package/
+          if-no-files-found: error
