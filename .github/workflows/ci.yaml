@@ -76,7 +76,6 @@ jobs:
             binary_path: dist/madwas
           - name: linux-armv6
             os: [self-hosted, linux, ARMv6]
-            setup_python: false
             binary_path: dist/madwas
           - name: linux-arm64
             os: ubuntu-24.04-arm
@@ -93,7 +92,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python 3.14
-        if: matrix.setup_python != false
+        if: matrix.name != 'linux-armv6'
         uses: actions/setup-python@v6
         with:
           python-version: 3.14
