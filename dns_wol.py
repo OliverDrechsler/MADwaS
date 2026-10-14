@@ -26,7 +26,11 @@ logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 conf.sniff_promisc = True
 
 EXCEPTION_MESSAGE = "Exception occurred"
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent
+)
 CONFIG_PATH = BASE_DIR / "config.yaml"
 CONFIG_TEMPLATE_PATH = BASE_DIR / "config_template.yaml"
 LOG_CONFIG_PATH = BASE_DIR / "log_config.yaml"
